@@ -802,6 +802,12 @@ declare namespace monaco {
 
 declare namespace monaco.editor {
 
+	export interface IDiffNavigator {
+		canNavigate(): boolean;
+		next(): void;
+		previous(): void;
+		dispose(): void;
+	}
 
 	/**
 	 * Create a new editor under `domElement`.
@@ -823,13 +829,6 @@ declare namespace monaco.editor {
 	 * The editor will read the size of `domElement`.
 	 */
 	export function createDiffEditor(domElement: HTMLElement, options?: IDiffEditorConstructionOptions, override?: IEditorOverrideServices): IStandaloneDiffEditor;
-
-	export interface IDiffNavigator {
-		canNavigate(): boolean;
-		next(): void;
-		previous(): void;
-		dispose(): void;
-	}
 
 	export interface IDiffNavigatorOptions {
 		readonly followsCaret?: boolean;
@@ -2598,8 +2597,8 @@ declare namespace monaco.editor {
 		 */
 		fontLigatures?: boolean | string;
 		/**
-		 * Disable the use of `will-change` for the editor margin and lines layers.
-		 * The usage of `will-change` acts as a hint for browsers to create an extra layer.
+		 * Disable the use of `transform: translate3d(0px, 0px, 0px)` for the editor margin and lines layers.
+		 * The usage of `transform: translate3d(0px, 0px, 0px)` acts as a hint for browsers to create an extra layer.
 		 * Defaults to false.
 		 */
 		disableLayerHinting?: boolean;
@@ -5559,6 +5558,32 @@ declare namespace monaco.languages {
 		onDidChange?: IEvent<this>;
 		provideCodeLenses(model: editor.ITextModel, token: CancellationToken): ProviderResult<CodeLensList>;
 		resolveCodeLens?(model: editor.ITextModel, codeLens: CodeLens, token: CancellationToken): ProviderResult<CodeLens>;
+	}
+
+	export interface SemanticColoringLegend {
+		readonly tokenTypes: string[];
+		readonly tokenModifiers: string[];
+	}
+
+	export interface SemanticColoringArea {
+		/**
+		 * The zero-based line value where this token block begins.
+		 */
+		readonly line: number;
+		/**
+		 * The actual token block encoded data.
+		 */
+		readonly data: Uint32Array;
+	}
+
+	export interface SemanticColoring {
+		readonly areas: SemanticColoringArea[];
+		dispose(): void;
+	}
+
+	export interface SemanticColoringProvider {
+		getLegend(): SemanticColoringLegend;
+		provideSemanticColoring(model: editor.ITextModel, token: CancellationToken): ProviderResult<SemanticColoring>;
 	}
 
 	export interface ILanguageExtensionPoint {
