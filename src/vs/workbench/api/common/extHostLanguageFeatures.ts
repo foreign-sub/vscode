@@ -7,7 +7,7 @@ import { URI, UriComponents } from 'vs/base/common/uri';
 import { mixin } from 'vs/base/common/objects';
 import * as vscode from 'vscode';
 import * as typeConvert from 'vs/workbench/api/common/extHostTypeConverters';
-import { Range, Disposable, CompletionList, SnippetString, CodeActionKind, SymbolInformation, DocumentSymbol } from 'vs/workbench/api/common/extHostTypes';
+import { Range, Disposable, CompletionList, SnippetString, CodeActionKind, SymbolInformation, DocumentSymbol, SemanticColoringArea } from 'vs/workbench/api/common/extHostTypes';
 import { ISingleEditOperation } from 'vs/editor/common/model';
 import * as modes from 'vs/editor/common/modes';
 import { ExtHostDocuments } from 'vs/workbench/api/common/extHostDocuments';
@@ -26,6 +26,9 @@ import { CancellationToken } from 'vs/base/common/cancellation';
 import { ExtensionIdentifier, IExtensionDescription } from 'vs/platform/extensions/common/extensions';
 import { IURITransformer } from 'vs/base/common/uriIpc';
 import { DisposableStore, dispose } from 'vs/base/common/lifecycle';
+import { VSBuffer } from 'vs/base/common/buffer';
+import { encodeSemanticTokensDto, ISemanticTokensDto, ISemanticTokensAreaDto } from 'vs/workbench/api/common/shared/semanticTokens';
+import { IdGenerator } from 'vs/base/common/idGenerator';
 
 // --- adapter
 
@@ -473,11 +476,11 @@ class NavigateTypeAdapter {
 
 	private readonly _symbolCache = new Map<number, vscode.SymbolInformation>();
 	private readonly _resultCache = new Map<number, [number, number]>();
-	private readonly _provider: vscode.WorkspaceSymbolProvider;
 
-	constructor(provider: vscode.WorkspaceSymbolProvider) {
-		this._provider = provider;
-	}
+	constructor(
+		private readonly _provider: vscode.WorkspaceSymbolProvider,
+		private readonly _logService: ILogService
+	) { }
 
 	provideWorkspaceSymbols(search: string, token: CancellationToken): Promise<extHostProtocol.IWorkspaceSymbolsDto> {
 		const result: extHostProtocol.IWorkspaceSymbolsDto = extHostProtocol.IdObject.mixin({ symbols: [] });
@@ -489,7 +492,7 @@ class NavigateTypeAdapter {
 						continue;
 					}
 					if (!item.name) {
-						console.warn('INVALID SymbolInformation, lacks name', item);
+						this._logService.warn('INVALID SymbolInformation, lacks name', item);
 						continue;
 					}
 					const symbol = extHostProtocol.IdObject.mixin(typeConvert.WorkspaceSymbol.from(item));
@@ -537,7 +540,8 @@ class RenameAdapter {
 
 	constructor(
 		private readonly _documents: ExtHostDocuments,
-		private readonly _provider: vscode.RenameProvider
+		private readonly _provider: vscode.RenameProvider,
+		private readonly _logService: ILogService
 	) { }
 
 	provideRenameEdits(resource: URI, position: IPosition, newName: string, token: CancellationToken): Promise<extHostProtocol.IWorkspaceEditDto | undefined> {
@@ -586,7 +590,7 @@ class RenameAdapter {
 				return undefined;
 			}
 			if (range.start.line > pos.line || range.end.line < pos.line) {
-				console.warn('INVALID rename location: position line must be within range start/end lines');
+				this._logService.warn('INVALID rename location: position line must be within range start/end lines');
 				return undefined;
 			}
 			return { range: typeConvert.Range.from(range), text };
@@ -611,24 +615,379 @@ class RenameAdapter {
 	}
 }
 
+export const enum SemanticColoringConstants {
+	/**
+	 * Let's aim at having 8KB buffers if possible...
+	 * So that would be 8192 / (5 * 4) = 409.6 tokens per area
+	 */
+	DesiredTokensPerArea = 400,
+
+	/**
+	 * Try to keep the total number of areas under 1024 if possible,
+	 * simply compensate by having more tokens per area...
+	 */
+	DesiredMaxAreas = 1024,
+
+	/**
+	 * Threshold for merging multiple delta areas and sending a full area.
+	 */
+	MinTokensPerArea = 50
+}
+
+interface ISemanticColoringAreaPair {
+	data: Uint32Array;
+	dto: ISemanticTokensAreaDto;
+}
+
+export class SemanticColoringAdapter {
+
+	private readonly _previousResults: Map<number, Uint32Array[]>;
+	private readonly _splitSingleAreaTokenCountThreshold: number;
+	private _nextResultId = 1;
+
+	constructor(
+		private readonly _documents: ExtHostDocuments,
+		private readonly _provider: vscode.SemanticColoringProvider,
+		private readonly _desiredTokensPerArea = SemanticColoringConstants.DesiredTokensPerArea,
+		private readonly _desiredMaxAreas = SemanticColoringConstants.DesiredMaxAreas,
+		private readonly _minTokensPerArea = SemanticColoringConstants.MinTokensPerArea
+	) {
+		this._previousResults = new Map<number, Uint32Array[]>();
+		this._splitSingleAreaTokenCountThreshold = Math.round(1.5 * this._desiredTokensPerArea);
+	}
+
+	provideSemanticColoring(resource: URI, previousSemanticColoringResultId: number, token: CancellationToken): Promise<VSBuffer | null> {
+		const doc = this._documents.getDocument(resource);
+
+		return asPromise(() => this._provider.provideSemanticColoring(doc, token)).then(value => {
+			if (!value) {
+				return null;
+			}
+
+			const oldAreas = (previousSemanticColoringResultId !== 0 ? this._previousResults.get(previousSemanticColoringResultId) : null);
+			if (oldAreas) {
+				this._previousResults.delete(previousSemanticColoringResultId);
+				return this._deltaEncodeAreas(oldAreas, value.areas);
+			}
+
+			return this._fullEncodeAreas(value.areas);
+		});
+	}
+
+	async releaseSemanticColoring(semanticColoringResultId: number): Promise<void> {
+		this._previousResults.delete(semanticColoringResultId);
+	}
+
+	private _deltaEncodeAreas(oldAreas: Uint32Array[], newAreas: SemanticColoringArea[]): VSBuffer {
+		if (newAreas.length > 1) {
+			// this is a fancy provider which is smart enough to break things into good areas
+			// we therefore try to match old areas only by object identity
+			const oldAreasIndexMap = new Map<Uint32Array, number>();
+			for (let i = 0, len = oldAreas.length; i < len; i++) {
+				oldAreasIndexMap.set(oldAreas[i], i);
+			}
+
+			let result: ISemanticColoringAreaPair[] = [];
+			for (let i = 0, len = newAreas.length; i < len; i++) {
+				const newArea = newAreas[i];
+				if (oldAreasIndexMap.has(newArea.data)) {
+					// great! we can reuse this area
+					const oldIndex = oldAreasIndexMap.get(newArea.data)!;
+					result.push({
+						data: newArea.data,
+						dto: {
+							type: 'delta',
+							line: newArea.line,
+							oldIndex: oldIndex
+						}
+					});
+				} else {
+					result.push({
+						data: newArea.data,
+						dto: {
+							type: 'full',
+							line: newArea.line,
+							data: newArea.data
+						}
+					});
+				}
+			}
+
+			return this._saveResultAndEncode(result);
+		}
+
+		return this._deltaEncodeArea(oldAreas, newAreas[0]);
+	}
+
+	private static _oldAreaAppearsInNewArea(oldAreaData: Uint32Array, oldAreaTokenCount: number, newAreaData: Uint32Array, newAreaOffset: number): boolean {
+		const newTokenStartDeltaLine = newAreaData[5 * newAreaOffset];
+
+		// check that each and every value from `oldArea` is equal to `area`
+		for (let j = 0; j < oldAreaTokenCount; j++) {
+			const oldOffset = 5 * j;
+			const newOffset = 5 * (j + newAreaOffset);
+
+			if (
+				(oldAreaData[oldOffset] !== newAreaData[newOffset] - newTokenStartDeltaLine)
+				|| (oldAreaData[oldOffset + 1] !== newAreaData[newOffset + 1])
+				|| (oldAreaData[oldOffset + 2] !== newAreaData[newOffset + 2])
+				|| (oldAreaData[oldOffset + 3] !== newAreaData[newOffset + 3])
+				|| (oldAreaData[oldOffset + 4] !== newAreaData[newOffset + 4])
+			) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	private _deltaEncodeArea(oldAreas: Uint32Array[], newArea: SemanticColoringArea): VSBuffer {
+		const newAreaData = newArea.data;
+		const prependAreas: ISemanticColoringAreaPair[] = [];
+		const appendAreas: ISemanticColoringAreaPair[] = [];
+
+		// Try to find appearences of `oldAreas` inside `area`.
+		let newTokenStartIndex = 0;
+		let newTokenEndIndex = (newAreaData.length / 5) | 0;
+		let oldAreaUsedIndex = -1;
+		for (let i = 0, len = oldAreas.length; i < len; i++) {
+			const oldAreaData = oldAreas[i];
+			const oldAreaTokenCount = (oldAreaData.length / 5) | 0;
+			if (oldAreaTokenCount === 0) {
+				// skip old empty areas
+				continue;
+			}
+			if (newTokenEndIndex - newTokenStartIndex < oldAreaTokenCount) {
+				// there are too many old tokens, this cannot work
+				break;
+			}
+
+			const newAreaOffset = newTokenStartIndex;
+			const newTokenStartDeltaLine = newAreaData[5 * newAreaOffset];
+			const isEqual = SemanticColoringAdapter._oldAreaAppearsInNewArea(oldAreaData, oldAreaTokenCount, newAreaData, newAreaOffset);
+			if (!isEqual) {
+				break;
+			}
+			newTokenStartIndex += oldAreaTokenCount;
+
+			oldAreaUsedIndex = i;
+			prependAreas.push({
+				data: oldAreaData,
+				dto: {
+					type: 'delta',
+					line: newArea.line + newTokenStartDeltaLine,
+					oldIndex: i
+				}
+			});
+		}
+
+		for (let i = oldAreas.length - 1; i > oldAreaUsedIndex; i--) {
+			const oldAreaData = oldAreas[i];
+			const oldAreaTokenCount = (oldAreaData.length / 5) | 0;
+			if (oldAreaTokenCount === 0) {
+				// skip old empty areas
+				continue;
+			}
+			if (newTokenEndIndex - newTokenStartIndex < oldAreaTokenCount) {
+				// there are too many old tokens, this cannot work
+				break;
+			}
+
+			const newAreaOffset = (newTokenEndIndex - oldAreaTokenCount);
+			const newTokenStartDeltaLine = newAreaData[5 * newAreaOffset];
+			const isEqual = SemanticColoringAdapter._oldAreaAppearsInNewArea(oldAreaData, oldAreaTokenCount, newAreaData, newAreaOffset);
+			if (!isEqual) {
+				break;
+			}
+			newTokenEndIndex -= oldAreaTokenCount;
+
+			appendAreas.unshift({
+				data: oldAreaData,
+				dto: {
+					type: 'delta',
+					line: newArea.line + newTokenStartDeltaLine,
+					oldIndex: i
+				}
+			});
+		}
+
+		if (prependAreas.length === 0 && appendAreas.length === 0) {
+			// There is no reuse possibility!
+			return this._fullEncodeAreas([newArea]);
+		}
+
+		if (newTokenStartIndex === newTokenEndIndex) {
+			// 100% reuse!
+			return this._saveResultAndEncode(prependAreas.concat(appendAreas));
+		}
+
+		// It is clear at this point that there will be at least one full area.
+		// Expand the mid area if the areas next to it are too small
+		while (prependAreas.length > 0) {
+			const tokenCount = (prependAreas[prependAreas.length - 1].data.length / 5);
+			if (tokenCount < this._minTokensPerArea) {
+				newTokenStartIndex -= tokenCount;
+				prependAreas.pop();
+			} else {
+				break;
+			}
+		}
+		while (appendAreas.length > 0) {
+			const tokenCount = (appendAreas[0].data.length / 5);
+			if (tokenCount < this._minTokensPerArea) {
+				newTokenEndIndex += tokenCount;
+				appendAreas.shift();
+			} else {
+				break;
+			}
+		}
+
+		// Extract the mid area
+		const newTokenStartDeltaLine = newAreaData[5 * newTokenStartIndex];
+		const newMidAreaData = new Uint32Array(5 * (newTokenEndIndex - newTokenStartIndex));
+		for (let tokenIndex = newTokenStartIndex; tokenIndex < newTokenEndIndex; tokenIndex++) {
+			const srcOffset = 5 * tokenIndex;
+			const deltaLine = newAreaData[srcOffset];
+			const startCharacter = newAreaData[srcOffset + 1];
+			const endCharacter = newAreaData[srcOffset + 2];
+			const tokenType = newAreaData[srcOffset + 3];
+			const tokenModifiers = newAreaData[srcOffset + 4];
+
+			const destOffset = 5 * (tokenIndex - newTokenStartIndex);
+			newMidAreaData[destOffset] = deltaLine - newTokenStartDeltaLine;
+			newMidAreaData[destOffset + 1] = startCharacter;
+			newMidAreaData[destOffset + 2] = endCharacter;
+			newMidAreaData[destOffset + 3] = tokenType;
+			newMidAreaData[destOffset + 4] = tokenModifiers;
+		}
+
+		const newMidArea = new SemanticColoringArea(newArea.line + newTokenStartDeltaLine, newMidAreaData);
+		const newMidAreas = this._splitAreaIntoMultipleAreasIfNecessary(newMidArea);
+		const newMidAreasPairs: ISemanticColoringAreaPair[] = newMidAreas.map(a => {
+			return {
+				data: a.data,
+				dto: {
+					type: 'full',
+					line: a.line,
+					data: a.data,
+				}
+			};
+		});
+
+		return this._saveResultAndEncode(prependAreas.concat(newMidAreasPairs).concat(appendAreas));
+	}
+
+	private _fullEncodeAreas(areas: SemanticColoringArea[]): VSBuffer {
+		if (areas.length === 1) {
+			areas = this._splitAreaIntoMultipleAreasIfNecessary(areas[0]);
+		}
+
+		return this._saveResultAndEncode(areas.map(a => {
+			return {
+				data: a.data,
+				dto: {
+					type: 'full',
+					line: a.line,
+					data: a.data
+				}
+			};
+		}));
+	}
+
+	private _saveResultAndEncode(areas: ISemanticColoringAreaPair[]): VSBuffer {
+		const myId = this._nextResultId++;
+		this._previousResults.set(myId, areas.map(a => a.data));
+		console.log(`_saveResultAndEncode: ${myId} --> ${areas.map(a => `${a.dto.line}-${a.dto.type}(${a.data.length / 5})`).join(', ')}`);
+		const dto: ISemanticTokensDto = {
+			id: myId,
+			areas: areas.map(a => a.dto)
+		};
+		return encodeSemanticTokensDto(dto);
+	}
+
+	private _splitAreaIntoMultipleAreasIfNecessary(area: vscode.SemanticColoringArea): SemanticColoringArea[] {
+		const srcAreaLine = area.line;
+		const srcAreaData = area.data;
+		const tokenCount = (srcAreaData.length / 5) | 0;
+		if (tokenCount <= this._splitSingleAreaTokenCountThreshold) {
+			return [area];
+		}
+
+		const tokensPerArea = Math.max(Math.ceil(tokenCount / this._desiredMaxAreas), this._desiredTokensPerArea);
+
+		let result: SemanticColoringArea[] = [];
+		let tokenIndex = 0;
+		while (tokenIndex < tokenCount) {
+			const tokenStartIndex = tokenIndex;
+			let tokenEndIndex = Math.min(tokenStartIndex + tokensPerArea, tokenCount);
+
+			// Keep tokens on the same line in the same area...
+			if (tokenEndIndex < tokenCount) {
+				let smallAvoidDeltaLine = srcAreaData[5 * tokenEndIndex];
+				let smallTokenEndIndex = tokenEndIndex;
+				while (smallTokenEndIndex - 1 > tokenStartIndex && srcAreaData[5 * (smallTokenEndIndex - 1)] === smallAvoidDeltaLine) {
+					smallTokenEndIndex--;
+				}
+
+				if (smallTokenEndIndex - 1 === tokenStartIndex) {
+					// there are so many tokens on this line that our area would be empty, we must now go right
+					let bigAvoidDeltaLine = srcAreaData[5 * (tokenEndIndex - 1)];
+					let bigTokenEndIndex = tokenEndIndex;
+					while (bigTokenEndIndex + 1 < tokenCount && srcAreaData[5 * (bigTokenEndIndex + 1)] === bigAvoidDeltaLine) {
+						bigTokenEndIndex++;
+					}
+					tokenEndIndex = bigTokenEndIndex;
+				} else {
+					tokenEndIndex = smallTokenEndIndex;
+				}
+			}
+
+			let destAreaLine = 0;
+			const destAreaData = new Uint32Array((tokenEndIndex - tokenStartIndex) * 5);
+			while (tokenIndex < tokenEndIndex) {
+				const srcOffset = 5 * tokenIndex;
+				const line = srcAreaLine + srcAreaData[srcOffset];
+				const startCharacter = srcAreaData[srcOffset + 1];
+				const endCharacter = srcAreaData[srcOffset + 2];
+				const tokenType = srcAreaData[srcOffset + 3];
+				const tokenModifiers = srcAreaData[srcOffset + 4];
+
+				if (tokenIndex === tokenStartIndex) {
+					destAreaLine = line;
+				}
+
+				const destOffset = 5 * (tokenIndex - tokenStartIndex);
+				destAreaData[destOffset] = line - destAreaLine;
+				destAreaData[destOffset + 1] = startCharacter;
+				destAreaData[destOffset + 2] = endCharacter;
+				destAreaData[destOffset + 3] = tokenType;
+				destAreaData[destOffset + 4] = tokenModifiers;
+
+				tokenIndex++;
+			}
+
+			result.push(new SemanticColoringArea(destAreaLine, destAreaData));
+		}
+
+		return result;
+	}
+}
+
 class SuggestAdapter {
 
 	static supportsResolving(provider: vscode.CompletionItemProvider): boolean {
 		return typeof provider.resolveCompletionItem === 'function';
 	}
 
-	private _documents: ExtHostDocuments;
-	private _commands: CommandsConverter;
-	private _provider: vscode.CompletionItemProvider;
-
 	private _cache = new Cache<vscode.CompletionItem>('CompletionItem');
 	private _disposables = new Map<number, DisposableStore>();
 
-	constructor(documents: ExtHostDocuments, commands: CommandsConverter, provider: vscode.CompletionItemProvider) {
-		this._documents = documents;
-		this._commands = commands;
-		this._provider = provider;
-	}
+	constructor(
+		private readonly _documents: ExtHostDocuments,
+		private readonly _commands: CommandsConverter,
+		private readonly _provider: vscode.CompletionItemProvider,
+		private readonly _logService: ILogService
+	) { }
 
 	provideCompletionItems(resource: URI, position: IPosition, context: modes.CompletionContext, token: CancellationToken): Promise<extHostProtocol.ISuggestResultDto | undefined> {
 
@@ -711,7 +1070,7 @@ class SuggestAdapter {
 
 	private _convertCompletionItem(item: vscode.CompletionItem, position: vscode.Position, id: extHostProtocol.ChainedCacheId): extHostProtocol.ISuggestDataDto | undefined {
 		if (typeof item.label !== 'string' || item.label.length === 0) {
-			console.warn('INVALID text edit -> must have at least a label');
+			this._logService.warn('INVALID text edit -> must have at least a label');
 			return undefined;
 		}
 
@@ -751,7 +1110,7 @@ class SuggestAdapter {
 		}
 
 		// 'overwrite[Before|After]'-logic
-		let range: vscode.Range | { inserting: vscode.Range, replacing: vscode.Range } | undefined;
+		let range: vscode.Range | { inserting: vscode.Range, replacing: vscode.Range; } | undefined;
 		if (item.textEdit) {
 			range = item.textEdit.range;
 		} else if (item.range) {
@@ -763,7 +1122,7 @@ class SuggestAdapter {
 		if (range) {
 			if (Range.isRange(range)) {
 				if (!SuggestAdapter._isValidRangeForCompletion(range, position)) {
-					console.trace('INVALID range -> must be single line and on the same line');
+					this._logService.trace('INVALID range -> must be single line and on the same line');
 					return undefined;
 				}
 				result[extHostProtocol.ISuggestDataDtoField.range] = typeConvert.Range.from(range);
@@ -775,7 +1134,7 @@ class SuggestAdapter {
 					|| !range.inserting.start.isEqual(range.replacing.start)
 					|| !range.replacing.contains(range.inserting)
 				) {
-					console.trace('INVALID range -> must be single line, on the same line, insert range must be a prefix of replace range');
+					this._logService.trace('INVALID range -> must be single line, on the same line, insert range must be a prefix of replace range');
 					return undefined;
 				}
 				result[extHostProtocol.ISuggestDataDtoField.range] = {
@@ -991,7 +1350,8 @@ class SelectionRangeAdapter {
 
 	constructor(
 		private readonly _documents: ExtHostDocuments,
-		private readonly _provider: vscode.SelectionRangeProvider
+		private readonly _provider: vscode.SelectionRangeProvider,
+		private readonly _logService: ILogService
 	) { }
 
 	provideSelectionRanges(resource: URI, pos: IPosition[], token: CancellationToken): Promise<modes.SelectionRange[][]> {
@@ -1003,7 +1363,7 @@ class SelectionRangeAdapter {
 				return [];
 			}
 			if (allProviderRanges.length !== positions.length) {
-				console.warn('BAD selection ranges, provider must return ranges for each position');
+				this._logService.warn('BAD selection ranges, provider must return ranges for each position');
 				return [];
 			}
 
@@ -1034,15 +1394,15 @@ class SelectionRangeAdapter {
 
 class CallHierarchyAdapter {
 
-	private _idPool: number = 0;
-	private readonly _cache = new Map<string, vscode.CallHierarchyItem[]>();
+	private readonly _idPool = new IdGenerator('');
+	private readonly _cache = new Map<string, Map<string, vscode.CallHierarchyItem>>();
 
 	constructor(
 		private readonly _documents: ExtHostDocuments,
 		private readonly _provider: vscode.CallHierarchyProvider
 	) { }
 
-	async prepareSession(uri: URI, position: IPosition, token: CancellationToken): Promise<{ sessionId: string, root: extHostProtocol.ICallHierarchyItemDto } | undefined> {
+	async prepareSession(uri: URI, position: IPosition, token: CancellationToken): Promise<extHostProtocol.ICallHierarchyItemDto | undefined> {
 		const doc = this._documents.getDocument(uri);
 		const pos = typeConvert.Position.to(position);
 
@@ -1050,13 +1410,14 @@ class CallHierarchyAdapter {
 		if (!item) {
 			return undefined;
 		}
-		const sessionId = String.fromCharCode(this._idPool++);
-		this._cache.set(sessionId, []);
-		return { sessionId, root: this._cacheAndConvertItem(sessionId, item) };
+		const sessionId = this._idPool.nextId();
+
+		this._cache.set(sessionId, new Map());
+		return this._cacheAndConvertItem(sessionId, item);
 	}
 
-	async provideCallsTo(itemId: string, token: CancellationToken): Promise<[extHostProtocol.ICallHierarchyItemDto, IRange[]][] | undefined> {
-		const item = this._itemFromCache(itemId);
+	async provideCallsTo(sessionId: string, itemId: string, token: CancellationToken): Promise<extHostProtocol.IIncomingCallDto[] | undefined> {
+		const item = this._itemFromCache(sessionId, itemId);
 		if (!item) {
 			throw new Error('missing call hierarchy item');
 		}
@@ -1064,11 +1425,16 @@ class CallHierarchyAdapter {
 		if (!calls) {
 			return undefined;
 		}
-		return calls.map(call => (<[extHostProtocol.ICallHierarchyItemDto, IRange[]]>[this._cacheAndConvertItem(itemId, call.from), call.fromRanges.map(typeConvert.Range.from)]));
+		return calls.map(call => {
+			return {
+				from: this._cacheAndConvertItem(sessionId, call.from),
+				fromRanges: call.fromRanges.map(r => typeConvert.Range.from(r))
+			};
+		});
 	}
 
-	async provideCallsFrom(itemId: string, token: CancellationToken): Promise<[extHostProtocol.ICallHierarchyItemDto, IRange[]][] | undefined> {
-		const item = this._itemFromCache(itemId);
+	async provideCallsFrom(sessionId: string, itemId: string, token: CancellationToken): Promise<extHostProtocol.IOutgoingCallDto[] | undefined> {
+		const item = this._itemFromCache(sessionId, itemId);
 		if (!item) {
 			throw new Error('missing call hierarchy item');
 		}
@@ -1076,7 +1442,12 @@ class CallHierarchyAdapter {
 		if (!calls) {
 			return undefined;
 		}
-		return calls.map(call => (<[extHostProtocol.ICallHierarchyItemDto, IRange[]]>[this._cacheAndConvertItem(itemId, call.to), call.fromRanges.map(typeConvert.Range.from)]));
+		return calls.map(call => {
+			return {
+				to: this._cacheAndConvertItem(sessionId, call.to),
+				fromRanges: call.fromRanges.map(r => typeConvert.Range.from(r))
+			};
+		});
 	}
 
 	releaseSession(sessionId: string): void {
@@ -1085,9 +1456,10 @@ class CallHierarchyAdapter {
 
 	private _cacheAndConvertItem(itemOrSessionId: string, item: vscode.CallHierarchyItem): extHostProtocol.ICallHierarchyItemDto {
 		const sessionId = itemOrSessionId.charAt(0);
-		const array = this._cache.get(sessionId)!;
+		const map = this._cache.get(sessionId)!;
 		const dto: extHostProtocol.ICallHierarchyItemDto = {
-			id: sessionId + String.fromCharCode(array.length),
+			_sessionId: sessionId,
+			_itemId: map.size.toString(36),
 			name: item.name,
 			detail: item.detail,
 			kind: typeConvert.SymbolKind.from(item.kind),
@@ -1095,25 +1467,22 @@ class CallHierarchyAdapter {
 			range: typeConvert.Range.from(item.range),
 			selectionRange: typeConvert.Range.from(item.selectionRange),
 		};
-		array.push(item);
+		map.set(dto._itemId, item);
 		return dto;
 	}
 
-	private _itemFromCache(itemId: string): vscode.CallHierarchyItem | undefined {
-		const sessionId = itemId.charAt(0);
-		const array = this._cache.get(sessionId);
-		if (!array) {
-			return undefined;
-		}
-		return array[itemId.charCodeAt(1)];
+	private _itemFromCache(sessionId: string, itemId: string): vscode.CallHierarchyItem | undefined {
+		const map = this._cache.get(sessionId);
+		return map && map.get(itemId);
 	}
 }
 
 type Adapter = DocumentSymbolAdapter | CodeLensAdapter | DefinitionAdapter | HoverAdapter
 	| DocumentHighlightAdapter | ReferenceAdapter | CodeActionAdapter | DocumentFormattingAdapter
 	| RangeFormattingAdapter | OnTypeFormattingAdapter | NavigateTypeAdapter | RenameAdapter
-	| SuggestAdapter | SignatureHelpAdapter | LinkProviderAdapter | ImplementationAdapter | TypeDefinitionAdapter
-	| ColorProviderAdapter | FoldingProviderAdapter | DeclarationAdapter | SelectionRangeAdapter | CallHierarchyAdapter;
+	| SemanticColoringAdapter | SuggestAdapter | SignatureHelpAdapter | LinkProviderAdapter
+	| ImplementationAdapter | TypeDefinitionAdapter | ColorProviderAdapter | FoldingProviderAdapter
+	| DeclarationAdapter | SelectionRangeAdapter | CallHierarchyAdapter;
 
 class AdapterData {
 	constructor(
@@ -1193,7 +1562,7 @@ export class ExtHostLanguageFeatures implements extHostProtocol.ExtHostLanguageF
 		return ExtHostLanguageFeatures._handlePool++;
 	}
 
-	private _withAdapter<A, R>(handle: number, ctor: { new(...args: any[]): A }, callback: (adapter: A, extension: IExtensionDescription | undefined) => Promise<R>, fallbackValue: R): Promise<R> {
+	private _withAdapter<A, R>(handle: number, ctor: { new(...args: any[]): A; }, callback: (adapter: A, extension: IExtensionDescription | undefined) => Promise<R>, fallbackValue: R): Promise<R> {
 		const data = this._adapter.get(handle);
 		if (!data) {
 			return Promise.resolve(fallbackValue);
@@ -1404,7 +1773,7 @@ export class ExtHostLanguageFeatures implements extHostProtocol.ExtHostLanguageF
 	// --- navigate types
 
 	registerWorkspaceSymbolProvider(extension: IExtensionDescription, provider: vscode.WorkspaceSymbolProvider): vscode.Disposable {
-		const handle = this._addNewAdapter(new NavigateTypeAdapter(provider), extension);
+		const handle = this._addNewAdapter(new NavigateTypeAdapter(provider, this._logService), extension);
 		this._proxy.$registerNavigateTypeSupport(handle);
 		return this._createDisposable(handle);
 	}
@@ -1424,7 +1793,7 @@ export class ExtHostLanguageFeatures implements extHostProtocol.ExtHostLanguageF
 	// --- rename
 
 	registerRenameProvider(extension: IExtensionDescription, selector: vscode.DocumentSelector, provider: vscode.RenameProvider): vscode.Disposable {
-		const handle = this._addNewAdapter(new RenameAdapter(this._documents, provider), extension);
+		const handle = this._addNewAdapter(new RenameAdapter(this._documents, provider, this._logService), extension);
 		this._proxy.$registerRenameSupport(handle, this._transformDocumentSelector(selector), RenameAdapter.supportsResolving(provider));
 		return this._createDisposable(handle);
 	}
@@ -1437,10 +1806,28 @@ export class ExtHostLanguageFeatures implements extHostProtocol.ExtHostLanguageF
 		return this._withAdapter(handle, RenameAdapter, adapter => adapter.resolveRenameLocation(URI.revive(resource), position, token), undefined);
 	}
 
+	//#region semantic coloring
+
+	registerSemanticColoringProvider(extension: IExtensionDescription, selector: vscode.DocumentSelector, provider: vscode.SemanticColoringProvider, legend: vscode.SemanticColoringLegend): vscode.Disposable {
+		const handle = this._addNewAdapter(new SemanticColoringAdapter(this._documents, provider), extension);
+		this._proxy.$registerSemanticColoringProvider(handle, this._transformDocumentSelector(selector), legend);
+		return this._createDisposable(handle);
+	}
+
+	$provideSemanticColoring(handle: number, resource: UriComponents, previousSemanticColoringResultId: number, token: CancellationToken): Promise<VSBuffer | null> {
+		return this._withAdapter(handle, SemanticColoringAdapter, adapter => adapter.provideSemanticColoring(URI.revive(resource), previousSemanticColoringResultId, token), null);
+	}
+
+	$releaseSemanticColoring(handle: number, semanticColoringResultId: number): void {
+		this._withAdapter(handle, SemanticColoringAdapter, adapter => adapter.releaseSemanticColoring(semanticColoringResultId), undefined);
+	}
+
+	//#endregion
+
 	// --- suggestion
 
 	registerCompletionItemProvider(extension: IExtensionDescription, selector: vscode.DocumentSelector, provider: vscode.CompletionItemProvider, triggerCharacters: string[]): vscode.Disposable {
-		const handle = this._addNewAdapter(new SuggestAdapter(this._documents, this._commands.converter, provider), extension);
+		const handle = this._addNewAdapter(new SuggestAdapter(this._documents, this._commands.converter, provider, this._logService), extension);
 		this._proxy.$registerSuggestSupport(handle, this._transformDocumentSelector(selector), triggerCharacters, SuggestAdapter.supportsResolving(provider), extension.identifier);
 		return this._createDisposable(handle);
 	}
@@ -1524,7 +1911,7 @@ export class ExtHostLanguageFeatures implements extHostProtocol.ExtHostLanguageF
 	// --- smart select
 
 	registerSelectionRangeProvider(extension: IExtensionDescription, selector: vscode.DocumentSelector, provider: vscode.SelectionRangeProvider): vscode.Disposable {
-		const handle = this._addNewAdapter(new SelectionRangeAdapter(this._documents, provider), extension);
+		const handle = this._addNewAdapter(new SelectionRangeAdapter(this._documents, provider, this._logService), extension);
 		this._proxy.$registerSelectionRangeProvider(handle, this._transformDocumentSelector(selector));
 		return this._createDisposable(handle);
 	}
@@ -1541,16 +1928,16 @@ export class ExtHostLanguageFeatures implements extHostProtocol.ExtHostLanguageF
 		return this._createDisposable(handle);
 	}
 
-	$prepareCallHierarchy(handle: number, resource: UriComponents, position: IPosition, token: CancellationToken): Promise<{ sessionId: string, root: extHostProtocol.ICallHierarchyItemDto } | undefined> {
+	$prepareCallHierarchy(handle: number, resource: UriComponents, position: IPosition, token: CancellationToken): Promise<extHostProtocol.ICallHierarchyItemDto | undefined> {
 		return this._withAdapter(handle, CallHierarchyAdapter, adapter => Promise.resolve(adapter.prepareSession(URI.revive(resource), position, token)), undefined);
 	}
 
-	$provideCallHierarchyIncomingCalls(handle: number, itemId: string, token: CancellationToken): Promise<[extHostProtocol.ICallHierarchyItemDto, IRange[]][] | undefined> {
-		return this._withAdapter(handle, CallHierarchyAdapter, adapter => adapter.provideCallsTo(itemId, token), undefined);
+	$provideCallHierarchyIncomingCalls(handle: number, sessionId: string, itemId: string, token: CancellationToken): Promise<extHostProtocol.IIncomingCallDto[] | undefined> {
+		return this._withAdapter(handle, CallHierarchyAdapter, adapter => adapter.provideCallsTo(sessionId, itemId, token), undefined);
 	}
 
-	$provideCallHierarchyOutgoingCalls(handle: number, itemId: string, token: CancellationToken): Promise<[extHostProtocol.ICallHierarchyItemDto, IRange[]][] | undefined> {
-		return this._withAdapter(handle, CallHierarchyAdapter, adapter => adapter.provideCallsFrom(itemId, token), undefined);
+	$provideCallHierarchyOutgoingCalls(handle: number, sessionId: string, itemId: string, token: CancellationToken): Promise<extHostProtocol.IOutgoingCallDto[] | undefined> {
+		return this._withAdapter(handle, CallHierarchyAdapter, adapter => adapter.provideCallsFrom(sessionId, itemId, token), undefined);
 	}
 
 	$releaseCallHierarchy(handle: number, sessionId: string): void {
