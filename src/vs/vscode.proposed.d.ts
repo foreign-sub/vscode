@@ -68,6 +68,67 @@ declare module 'vscode' {
 
 	//#endregion
 
+	//#region Alex - semantic coloring
+
+	export class SemanticColoringLegend {
+		public readonly tokenTypes: string[];
+		public readonly tokenModifiers: string[];
+
+		constructor(tokenTypes: string[], tokenModifiers: string[]);
+	}
+
+	export class SemanticColoringArea {
+		/**
+		 * The zero-based line value where this token block begins.
+		 */
+		public readonly line: number;
+		/**
+		 * The actual token block encoded data.
+		 * A certain token (at index `i` is encoded using 5 uint32 integers):
+		 *  - at index `5*i`   - `deltaLine`: token line number, relative to `SemanticColoringArea.line`
+		 *  - at index `5*i+1` - `startCharacter`: token start character offset inside the line (inclusive)
+		 *  - at index `5*i+2` - `endCharacter`: token end character offset inside the line (exclusive)
+		 *  - at index `5*i+3` - `tokenType`: will be looked up in `SemanticColoringLegend.tokenTypes`
+		 *  - at index `5*i+4` - `tokenModifiers`: each set bit will be looked up in `SemanticColoringLegend.tokenModifiers`
+		 */
+		public readonly data: Uint32Array;
+
+		constructor(line: number, data: Uint32Array);
+	}
+
+	export class SemanticColoring {
+		public readonly areas: SemanticColoringArea[];
+
+		constructor(areas: SemanticColoringArea[]);
+	}
+
+	/**
+	 * The semantic coloring provider interface defines the contract between extensions and
+	 * semantic coloring.
+	 *
+	 *
+	 */
+	export interface SemanticColoringProvider {
+
+		provideSemanticColoring(document: TextDocument, token: CancellationToken): ProviderResult<SemanticColoring>;
+	}
+
+	export namespace languages {
+		/**
+		 * Register a semantic coloring provider.
+		 *
+		 * Multiple providers can be registered for a language. In that case providers are sorted
+		 * by their [score](#languages.match) and the best-matching provider is used. Failure
+		 * of the selected provider will cause a failure of the whole operation.
+		 *
+		 * @param selector A selector that defines the documents this provider is applicable to.
+		 * @param provider A semantic coloring provider.
+		 * @return A [disposable](#Disposable) that unregisters this provider when being disposed.
+		 */
+		export function registerSemanticColoringProvider(selector: DocumentSelector, provider: SemanticColoringProvider, legend: SemanticColoringLegend): Disposable;
+	}
+
+	//#endregion
 
 	// #region Joh - code insets
 
@@ -523,6 +584,29 @@ declare module 'vscode' {
 
 	//#region André: debug
 
+	/**
+	 * A DebugSource is an opaque stand-in type for the [Source](https://microsoft.github.io/debug-adapter-protocol/specification#Types_Source) type defined in the Debug Adapter Protocol.
+	 */
+	export interface DebugSource {
+		// Properties: see details [here](https://microsoft.github.io/debug-adapter-protocol/specification#Types_Source).
+	}
+
+	export namespace debug {
+
+		/**
+		 * Converts a "Source" descriptor object received via the Debug Adapter Protocol into a Uri that can be used to load its contents.
+		 * If the source descriptor is based on a path, a file Uri is returned.
+		 * If the source descriptor uses a reference number, a specific debug Uri (scheme 'debug') is constructed that requires a corresponding VS Code ContentProvider and a running debug session
+		 *
+		 * If the "Source" descriptor has insufficient information for creating the Uri, an error is thrown.
+		 *
+		 * @param source An object conforming to the [Source](https://microsoft.github.io/debug-adapter-protocol/specification#Types_Source) type defined in the Debug Adapter Protocol.
+		 * @param session An optional debug session that will be used when the source descriptor uses a reference number to load the contents from an active debug session.
+		 * @return A uri that can be used to load the contents of the source.
+		 */
+		export function asDebugSourceUri(source: DebugSource, session?: DebugSession): Uri;
+	}
+
 	// deprecated
 
 	export interface DebugConfigurationProvider {
@@ -743,43 +827,97 @@ declare module 'vscode' {
 	//#region mjbvz,joh: https://github.com/Microsoft/vscode/issues/43768
 
 	export interface FileCreateEvent {
-		readonly created: ReadonlyArray<Uri>;
+
+		/**
+		 * The files that got created.
+		 */
+		readonly files: ReadonlyArray<Uri>;
 	}
 
 	export interface FileWillCreateEvent {
-		readonly creating: ReadonlyArray<Uri>;
+
+		/**
+		 * The files that are going to be created.
+		 */
+		readonly files: ReadonlyArray<Uri>;
+
+		waitUntil(thenable: Thenable<WorkspaceEdit>): void;
 		waitUntil(thenable: Thenable<any>): void;
 	}
 
 	export interface FileDeleteEvent {
-		readonly deleted: ReadonlyArray<Uri>;
+
+		/**
+		 * The files that got deleted.
+		 */
+		readonly files: ReadonlyArray<Uri>;
 	}
 
 	export interface FileWillDeleteEvent {
-		readonly deleting: ReadonlyArray<Uri>;
+
+		/**
+		 * The files that are going to be deleted.
+		 */
+		readonly files: ReadonlyArray<Uri>;
+
+		waitUntil(thenable: Thenable<WorkspaceEdit>): void;
 		waitUntil(thenable: Thenable<any>): void;
 	}
 
 	export interface FileRenameEvent {
-		readonly renamed: ReadonlyArray<{ oldUri: Uri, newUri: Uri }>;
+
+		/**
+		 * The files that got renamed.
+		 */
+		readonly files: ReadonlyArray<{ oldUri: Uri, newUri: Uri }>;
 	}
 
 	export interface FileWillRenameEvent {
-		readonly renaming: ReadonlyArray<{ oldUri: Uri, newUri: Uri }>;
-		waitUntil(thenable: Thenable<WorkspaceEdit>): void; // TODO@joh support sync/async
+
+		/**
+		 * The files that are going to be renamed.
+		 */
+		readonly files: ReadonlyArray<{ oldUri: Uri, newUri: Uri }>;
+
+		waitUntil(thenable: Thenable<WorkspaceEdit>): void;
+		waitUntil(thenable: Thenable<any>): void;
 	}
 
 	export namespace workspace {
 
+		/**
+		 * An event that is emitted when files are being created.
+		 *
+		 * *Note* that this event is triggered by user gestures, like creating a file from the
+		 * explorer, or from the [`workspace.applyEdit`](#workspace.applyEdit)-api. This event is *not* fired when
+		 * files change on disk, e.g triggered by another application, or when using the
+		 * [`workspace.fs`](#FileSystem)-api.
+		 */
 		export const onWillCreateFiles: Event<FileWillCreateEvent>;
-		export const onDidCreateFiles: Event<FileCreateEvent>;
 
+		/**
+		 * An event that is emitted when files are being deleted.
+		 *
+		 * *Note* that this event is triggered by user gestures, like deleting a file from the
+		 * explorer, or from the [`workspace.applyEdit`](#workspace.applyEdit)-api. This event is *not* fired when
+		 * files change on disk, e.g triggered by another application, or when using the
+		 * [`workspace.fs`](#FileSystem)-api.
+		 */
 		export const onWillDeleteFiles: Event<FileWillDeleteEvent>;
-		export const onDidDeleteFiles: Event<FileDeleteEvent>;
 
+		/**
+		 * An event that is emitted when files are being renamed.
+		 *
+		 * *Note* that this event is triggered by user gestures, like renaming a file from the
+		 * explorer, and from the [`workspace.applyEdit`](#workspace.applyEdit)-api. This event is *not* fired when
+		 * files change on disk, e.g triggered by another application, or when using the
+		 * [`workspace.fs`](#FileSystem)-api.
+		 */
 		export const onWillRenameFiles: Event<FileWillRenameEvent>;
-		export const onDidRenameFiles: Event<FileRenameEvent>;
 
+		export const onDidCreateFiles: Event<FileCreateEvent>;
+		export const onDidDeleteFiles: Event<FileDeleteEvent>;
+		export const onDidRenameFiles: Event<FileRenameEvent>;
 	}
 	//#endregion
 
@@ -959,7 +1097,7 @@ declare module 'vscode' {
 		/**
 		 * Persist the resource.
 		 */
-		save(resource: Uri): Thenable<void>;
+		save(): Thenable<void>;
 
 		/**
 		 * Called when the editor exits.
@@ -1038,6 +1176,17 @@ declare module 'vscode' {
 		 * *Note 2:* A insert range must be a prefix of a replace range, that means it must be contained and starting at the same position.
 		 */
 		range2?: Range | { inserting: Range; replacing: Range; };
+	}
+
+	//#endregion
+
+	//#region chrmarti, pelmers - allow QuickPicks to skip sorting: https://github.com/microsoft/vscode/issues/73904
+
+	export interface QuickPick<T extends QuickPickItem> extends QuickInput {
+		/**
+		* An optional flag to sort the final results by index of first query match in label. Defaults to true.
+		*/
+		sortByLabel: boolean;
 	}
 
 	//#endregion
