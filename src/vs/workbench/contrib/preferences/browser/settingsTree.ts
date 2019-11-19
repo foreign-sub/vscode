@@ -28,7 +28,6 @@ import { KeyCode } from 'vs/base/common/keyCodes';
 import { dispose, IDisposable, Disposable, DisposableStore } from 'vs/base/common/lifecycle';
 import { ISpliceable } from 'vs/base/common/sequence';
 import { escapeRegExpCharacters, startsWith } from 'vs/base/common/strings';
-import { URI } from 'vs/base/common/uri';
 import { localize } from 'vs/nls';
 import { IClipboardService } from 'vs/platform/clipboard/common/clipboardService';
 import { ICommandService } from 'vs/platform/commands/common/commands';
@@ -47,6 +46,8 @@ import { SETTINGS_EDITOR_COMMAND_SHOW_CONTEXT_MENU } from 'vs/workbench/contrib/
 import { ISetting, ISettingsGroup, SettingValueType } from 'vs/workbench/services/preferences/common/preferences';
 import { IWorkbenchEnvironmentService } from 'vs/workbench/services/environment/common/environmentService';
 import { isArray } from 'vs/base/common/types';
+import { BrowserFeatures } from 'vs/base/browser/canIUse';
+import { isIOS } from 'vs/base/common/platform';
 
 const $ = DOM.$;
 
@@ -485,15 +486,7 @@ export abstract class AbstractSettingRenderer extends Disposable implements ITre
 						};
 						this._onDidClickSettingLink.fire(e);
 					} else {
-						let uri: URI | undefined;
-						try {
-							uri = URI.parse(content);
-						} catch (err) {
-							// ignore
-						}
-						if (uri) {
-							this._openerService.open(uri).catch(onUnexpectedError);
-						}
+						this._openerService.open(content).catch(onUnexpectedError);
 					}
 				},
 				disposeables
@@ -918,7 +911,9 @@ export class SettingEnumRenderer extends AbstractSettingRenderer implements ITre
 	renderTemplate(container: HTMLElement): ISettingEnumItemTemplate {
 		const common = this.renderCommonTemplate(null, container, 'enum');
 
-		const selectBox = new SelectBox([], 0, this._contextViewService, undefined, { useCustomDrawn: true });
+		const selectBox = new SelectBox([], 0, this._contextViewService, undefined, {
+			useCustomDrawn: !(isIOS && BrowserFeatures.pointerEvents)
+		});
 
 		common.toDispose.push(selectBox);
 		common.toDispose.push(attachSelectBoxStyler(selectBox, this._themeService, {
@@ -1456,8 +1451,6 @@ export class SettingsTree extends ObjectTree<SettingsTreeElement> {
 		@IThemeService themeService: IThemeService,
 		@IInstantiationService instantiationService: IInstantiationService,
 	) {
-		const treeClass = 'settings-editor-tree';
-
 		super('SettingsTree', container,
 			new SettingsTreeDelegate(),
 			renderers,
@@ -1470,7 +1463,7 @@ export class SettingsTree extends ObjectTree<SettingsTreeElement> {
 						return e.id;
 					}
 				},
-				styleController: new DefaultStyleController(DOM.createStyleSheet(container), treeClass),
+				styleController: id => new DefaultStyleController(DOM.createStyleSheet(container), id),
 				filter: instantiationService.createInstance(SettingsTreeFilter, viewState)
 			});
 
@@ -1522,8 +1515,6 @@ export class SettingsTree extends ObjectTree<SettingsTreeElement> {
 				collector.addRule(`.settings-editor > .settings-body > .settings-tree-container .setting-item-contents .setting-item-description-markdown a:focus { outline-color: ${focusBorderColor} }`);
 			}
 		}));
-
-		this.getHTMLElement().classList.add(treeClass);
 
 		this.disposables.add(attachStyler(themeService, {
 			listActiveSelectionBackground: transparent(Color.white, 0),
