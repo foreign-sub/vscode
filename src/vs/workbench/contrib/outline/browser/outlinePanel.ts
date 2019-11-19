@@ -47,6 +47,7 @@ import { basename } from 'vs/base/common/resources';
 import { IDataSource } from 'vs/base/browser/ui/tree/tree';
 import { IMarkerDecorationsService } from 'vs/editor/common/services/markersDecorationService';
 import { MarkerSeverity } from 'vs/platform/markers/common/markers';
+import { SIDE_BAR_BACKGROUND } from 'vs/workbench/common/theme';
 
 class RequestState {
 
@@ -331,7 +332,10 @@ export class OutlinePanel extends ViewletPanel {
 				filter: this._treeFilter,
 				identityProvider: new OutlineIdentityProvider(),
 				keyboardNavigationLabelProvider: new OutlineNavigationLabelProvider(),
-				hideTwistiesOfChildlessElements: true
+				hideTwistiesOfChildlessElements: true,
+				overrideStyles: {
+					listBackground: SIDE_BAR_BACKGROUND
+				}
 			}
 		);
 
@@ -466,10 +470,14 @@ export class OutlinePanel extends ViewletPanel {
 		}
 
 		const textModel = editor.getModel();
-		const loadingMessage = oldModel && new TimeoutTimer(
-			() => this._showMessage(localize('loading', "Loading document symbols for '{0}'...", basename(textModel.uri))),
-			100
-		);
+
+		let loadingMessage: IDisposable | undefined;
+		if (!oldModel) {
+			loadingMessage = new TimeoutTimer(
+				() => this._showMessage(localize('loading', "Loading document symbols for '{0}'...", basename(textModel.uri))),
+				100
+			);
+		}
 
 		const requestDelay = OutlineModel.getRequestDelay(textModel);
 		this._progressBar.infinite().show(requestDelay);
