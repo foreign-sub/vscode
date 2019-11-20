@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Uri } from 'vscode';
+import * as qs from 'querystring';
 
 export interface GitUriParams {
 	path: string;
@@ -16,7 +17,21 @@ export function isGitUri(uri: Uri): boolean {
 }
 
 export function fromGitUri(uri: Uri): GitUriParams {
-	return JSON.parse(uri.query);
+	const result = qs.parse(uri.query) as any;
+
+	if (!result) {
+		throw new Error('Invalid git URI: empty query');
+	}
+
+	if (typeof result.path !== 'string') {
+		throw new Error('Invalid git URI: missing path');
+	}
+
+	if (typeof result.ref !== 'string') {
+		throw new Error('Invalid git URI: missing ref');
+	}
+
+	return result;
 }
 
 export interface GitUriOptions {
@@ -48,6 +63,6 @@ export function toGitUri(uri: Uri, ref: string, options: GitUriOptions = {}): Ur
 	return uri.with({
 		scheme: 'gitfs',
 		path,
-		query: JSON.stringify(params)
+		query: qs.stringify(params as any)
 	});
 }
