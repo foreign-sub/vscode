@@ -3396,7 +3396,7 @@ declare namespace monaco.editor {
 		/**
 		 * Overwrite word ends on accept. Default to false.
 		 */
-		overwriteOnAccept?: boolean;
+		insertMode?: 'insert' | 'replace';
 		/**
 		 * Enable graceful matching. Defaults to true.
 		 */
