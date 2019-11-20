@@ -2353,7 +2353,7 @@ export interface ISuggestOptions {
 	/**
 	 * Overwrite word ends on accept. Default to false.
 	 */
-	overwriteOnAccept?: boolean;
+	insertMode?: 'insert' | 'replace';
 	/**
 	 * Enable graceful matching. Defaults to true.
 	 */
@@ -2486,7 +2486,7 @@ class EditorSuggest extends BaseEditorOption<EditorOption.suggest, InternalSugge
 
 	constructor() {
 		const defaults: InternalSuggestOptions = {
-			overwriteOnAccept: false,
+			insertMode: 'insert',
 			filterGraceful: true,
 			snippetsPreventQuickSuggestions: true,
 			localityBonus: false,
@@ -2522,10 +2522,15 @@ class EditorSuggest extends BaseEditorOption<EditorOption.suggest, InternalSugge
 		super(
 			EditorOption.suggest, 'suggest', defaults,
 			{
-				'editor.suggest.overwriteOnAccept': {
-					type: 'boolean',
-					default: defaults.overwriteOnAccept,
-					description: nls.localize('suggest.overwriteOnAccept', "Controls whether words are overwritten when accepting completions.")
+				'editor.suggest.insertMode': {
+					type: 'string',
+					enum: ['insert', 'replace'],
+					enumDescriptions: [
+						nls.localize('suggest.insertMode.insert', "Insert suggestion without overwriting text right of the cursor."),
+						nls.localize('suggest.insertMode.replace', "Insert suggestion and overwrite text right of the cursor."),
+					],
+					default: defaults.insertMode,
+					description: nls.localize('suggest.insertMode', "Controls whether words are overwritten when accepting completions. Note that this depends on extensions opting into this feature.")
 				},
 				'editor.suggest.filterGraceful': {
 					type: 'boolean',
@@ -2703,7 +2708,7 @@ class EditorSuggest extends BaseEditorOption<EditorOption.suggest, InternalSugge
 		}
 		const input = _input as ISuggestOptions;
 		return {
-			overwriteOnAccept: EditorBooleanOption.boolean(input.overwriteOnAccept, this.defaultValue.overwriteOnAccept),
+			insertMode: EditorStringEnumOption.stringSet(input.insertMode, this.defaultValue.insertMode, ['insert', 'replace']),
 			filterGraceful: EditorBooleanOption.boolean(input.filterGraceful, this.defaultValue.filterGraceful),
 			snippetsPreventQuickSuggestions: EditorBooleanOption.boolean(input.snippetsPreventQuickSuggestions, this.defaultValue.filterGraceful),
 			localityBonus: EditorBooleanOption.boolean(input.localityBonus, this.defaultValue.localityBonus),
