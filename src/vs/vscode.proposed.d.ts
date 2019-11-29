@@ -130,7 +130,7 @@ declare module 'vscode' {
 
 	//#endregion
 
-	// #region Joh - code insets, https://github.com/microsoft/vscode/issues/85682
+	//#region editor insets: https://github.com/microsoft/vscode/issues/85682
 
 	export interface WebviewEditorInset {
 		readonly editor: TextEditor;
@@ -147,7 +147,7 @@ declare module 'vscode' {
 
 	//#endregion
 
-	//#region Joh - read/write in chunks, https://github.com/microsoft/vscode/issues/84515
+	//#region read/write in chunks: https://github.com/microsoft/vscode/issues/84515
 
 	export interface FileSystemProvider {
 		open?(resource: Uri, options: { create: boolean }): number | Thenable<number>;
@@ -528,7 +528,7 @@ declare module 'vscode' {
 
 	//#endregion
 
-	//#region Joao: diff command, https://github.com/microsoft/vscode/issues/84899
+	//#region diff command: https://github.com/microsoft/vscode/issues/84899
 
 	/**
 	 * The contiguous set of modified lines in a diff.
@@ -561,7 +561,7 @@ declare module 'vscode' {
 
 	//#endregion
 
-	//#region Joh: decorations, https://github.com/microsoft/vscode/issues/54938
+	//#region file-decorations: https://github.com/microsoft/vscode/issues/54938
 
 	export class Decoration {
 		letter?: string;
@@ -735,7 +735,6 @@ declare module 'vscode' {
 	}
 
 	//#endregion
-
 
 	//#region Terminal
 
@@ -1080,8 +1079,7 @@ declare module 'vscode' {
 	}
 	//#endregion
 
-	//#region Tree View
-
+	//#region Tree View: https://github.com/microsoft/vscode/issues/61313
 	/**
 	 * Label describing the [Tree item](#TreeItem)
 	 */
@@ -1114,9 +1112,7 @@ declare module 'vscode' {
 	}
 	//#endregion
 
-	//#region CustomExecution
-
-
+	//#region CustomExecution: https://github.com/microsoft/vscode/issues/81007
 	/**
 	 * A task to execute
 	 */
@@ -1135,7 +1131,9 @@ declare module 'vscode' {
 		 */
 		constructor(callback: (resolvedDefinition?: TaskDefinition) => Thenable<Pseudoterminal>);
 	}
+	//#endregion
 
+	//#region Task presentation group: https://github.com/microsoft/vscode/issues/47265
 	export interface TaskPresentationOptions {
 		/**
 		 * Controls whether the task is executed in a specific terminal group using split panes.
@@ -1144,7 +1142,7 @@ declare module 'vscode' {
 	}
 	//#endregion
 
-	// #region Ben - status bar item with ID and Name
+	//#region Ben - status bar item with ID and Name
 
 	export namespace window {
 
@@ -1192,7 +1190,7 @@ declare module 'vscode' {
 
 	//#endregion
 
-	// #region Ben - extension auth flow (desktop+web)
+	//#region Ben - extension auth flow (desktop+web)
 
 	export interface AppUriOptions {
 		payload?: {
@@ -1212,7 +1210,7 @@ declare module 'vscode' {
 
 	//#endregion
 
-	//#region Custom editors, mjbvz, https://github.com/microsoft/vscode/issues/77131
+	//#region Custom editors: https://github.com/microsoft/vscode/issues/77131
 
 	/**
 	 * Defines how a webview editor interacts with VS Code.
@@ -1330,7 +1328,7 @@ declare module 'vscode' {
 
 	//#endregion
 
-	//#region joh, insert/replace completions: https://github.com/microsoft/vscode/issues/10266
+	//#region insert/replace completions: https://github.com/microsoft/vscode/issues/10266
 
 	export interface CompletionItem {
 
@@ -1350,7 +1348,7 @@ declare module 'vscode' {
 
 	//#endregion
 
-	//#region chrmarti, pelmers - allow QuickPicks to skip sorting: https://github.com/microsoft/vscode/issues/73904
+	//#region allow QuickPicks to skip sorting: https://github.com/microsoft/vscode/issues/73904
 
 	export interface QuickPick<T extends QuickPickItem> extends QuickInput {
 		/**
@@ -1361,7 +1359,7 @@ declare module 'vscode' {
 
 	//#endregion
 
-	//#region mjbvz - Surfacing reasons why a code action cannot be applied to users — https://github.com/microsoft/vscode/issues/85160
+	//#region Surfacing reasons why a code action cannot be applied to users: https://github.com/microsoft/vscode/issues/85160
 
 	export interface CodeAction {
 		/**
