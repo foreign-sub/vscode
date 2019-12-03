@@ -2,7 +2,10 @@
   "name": "image-preview",
   "displayName": "%displayName%",
   "description": "%description%",
-  "extensionKind": ["ui", "workspace"],
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
   "version": "1.0.0",
   "publisher": "vscode",
   "icon": "icon.png",
