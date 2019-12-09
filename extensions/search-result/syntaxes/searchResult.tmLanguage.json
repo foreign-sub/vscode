@@ -1,36 +1,36 @@
 {
-	"name": "Search Results",
-	"scopeName": "text.searchResult",
-	"patterns": [
-		{
-			"match": "^# (Query|Flags|Including|Excluding|ContextLines): .*$",
-			"name": "comment"
-		},
-		{
-			"match": "^(?!\\s)(.*?)([^\\\\\\/\\n]*)(:)$",
-			"name": "string path.searchResult",
-			"captures": {
-				"1": {
-					"name": "dirname.path.searchResult"
-				},
-				"2": {
-					"name": "basename.path.searchResult"
-				},
-				"3": {
-					"name": "endingColon.path.searchResult"
-				}
-			}
-		},
-		{
-			"match": "^  (\\d+)(:| )",
-			"captures": {
-				"1": {
-					"name": "constant.numeric lineNumber.searchResult resultPrefix.searchResult"
-				},
-				"2:": {
-					"name": "resultPrefixSeparator.searchResult resultPrefix.searchResult"
-				}
-			}
-		}
-	]
+  "name": "Search Results",
+  "scopeName": "text.searchResult",
+  "patterns": [
+    {
+      "match": "^# (Query|Flags|Including|Excluding|ContextLines): .*$",
+      "name": "comment"
+    },
+    {
+      "match": "^(?!\\s)(.*?)([^\\\\\\/\\n]*)(:)$",
+      "name": "string path.searchResult",
+      "captures": {
+        "1": {
+          "name": "dirname.path.searchResult"
+        },
+        "2": {
+          "name": "basename.path.searchResult"
+        },
+        "3": {
+          "name": "endingColon.path.searchResult"
+        }
+      }
+    },
+    {
+      "match": "^  (\\d+)(:| )",
+      "captures": {
+        "1": {
+          "name": "constant.numeric lineNumber.searchResult resultPrefix.searchResult"
+        },
+        "2:": {
+          "name": "resultPrefixSeparator.searchResult resultPrefix.searchResult"
+        }
+      }
+    }
+  ]
 }
