@@ -255,6 +255,7 @@ class TunnelTreeRenderer extends Disposable implements ITreeRenderer<ITunnelGrou
 
 		inputBox.value = value;
 		inputBox.focus();
+		inputBox.select({ start: 0, end: editableData.startingValue ? editableData.startingValue.length : 0 });
 
 		const done = once((success: boolean, finishEditing: boolean) => {
 			inputBox.element.style.display = 'none';
@@ -450,6 +451,7 @@ export class TunnelPanel extends ViewPane {
 						return item.label;
 					}
 				},
+				multipleSelectionSupport: false
 			}
 		);
 		const actionRunner: ActionRunner = new ActionRunner();
@@ -495,6 +497,11 @@ export class TunnelPanel extends ViewPane {
 
 	getActions(): IAction[] {
 		return this.titleActions;
+	}
+
+	focus(): void {
+		super.focus();
+		this.tree.domFocus();
 	}
 
 	private onContextMenu(treeEvent: ITreeContextMenuEvent<ITunnelItem | ITunnelGroup>, actionRunner: ActionRunner): void {
@@ -559,9 +566,9 @@ export class TunnelPanelDescriptor implements IViewDescriptor {
 	}
 }
 
-namespace NameTunnelAction {
-	export const ID = 'remote.tunnel.name';
-	export const LABEL = nls.localize('remote.tunnel.name', "Rename");
+namespace LabelTunnelAction {
+	export const ID = 'remote.tunnel.label';
+	export const LABEL = nls.localize('remote.tunnel.label', "Set Label");
 
 	export function handler(): ICommandHandler {
 		return async (accessor, arg) => {
@@ -575,7 +582,7 @@ namespace NameTunnelAction {
 						remoteExplorerService.setEditable(arg.remote, null);
 					},
 					validationMessage: () => null,
-					placeholder: nls.localize('remote.tunnelsView.namePlaceholder', "Port name"),
+					placeholder: nls.localize('remote.tunnelsView.labelPlaceholder', "Port label"),
 					startingValue: arg.name
 				});
 			}
@@ -667,7 +674,7 @@ namespace CopyAddressAction {
 	}
 }
 
-CommandsRegistry.registerCommand(NameTunnelAction.ID, NameTunnelAction.handler());
+CommandsRegistry.registerCommand(LabelTunnelAction.ID, LabelTunnelAction.handler());
 CommandsRegistry.registerCommand(ForwardPortAction.ID, ForwardPortAction.handler());
 CommandsRegistry.registerCommand(ClosePortAction.ID, ClosePortAction.handler());
 CommandsRegistry.registerCommand(OpenPortInBrowserAction.ID, OpenPortInBrowserAction.handler());
@@ -704,8 +711,8 @@ MenuRegistry.appendMenuItem(MenuId.TunnelContext, ({
 	group: '0_manage',
 	order: 2,
 	command: {
-		id: NameTunnelAction.ID,
-		title: NameTunnelAction.LABEL,
+		id: LabelTunnelAction.ID,
+		title: LabelTunnelAction.LABEL,
 	},
 	when: TunnelTypeContextKey.isEqualTo(TunnelType.Forwarded)
 }));
