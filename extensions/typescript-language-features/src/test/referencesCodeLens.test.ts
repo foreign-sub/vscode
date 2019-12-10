@@ -96,4 +96,3 @@ suite('TypeScript References', () => {
 function getCodeLenses(document: vscode.Uri): Thenable<readonly vscode.CodeLens[] | undefined> {
 	return vscode.commands.executeCommand<readonly vscode.CodeLens[]>('vscode.executeCodeLensProvider', document, 100);
 }
-
