@@ -11,4 +11,3 @@ export const IExtHostInitDataService = createDecorator<IExtHostInitDataService>(
 export interface IExtHostInitDataService extends Readonly<IInitData> {
 	_serviceBrand: undefined;
 }
-
