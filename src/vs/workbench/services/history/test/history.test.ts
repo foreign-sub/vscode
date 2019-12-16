@@ -573,4 +573,3 @@ suite('EditorHistory', function () {
 		part.dispose();
 	});
 });
-
