@@ -230,4 +230,3 @@ export class MarkdownPreviewManager extends Disposable implements vscode.Webview
 		vscode.commands.executeCommand('setContext', MarkdownPreviewManager.markdownPreviewActiveContextKey, value);
 	}
 }
-
