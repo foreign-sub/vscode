@@ -593,5 +593,3 @@ suite('HistoryService', function () {
 		});
 	});
 });
-
-
