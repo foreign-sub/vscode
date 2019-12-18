@@ -33,7 +33,7 @@ export const VIEWLET_ID = 'workbench.view.explorer';
 /**
  * Explorer viewlet container.
  */
-export const VIEW_CONTAINER: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry).registerViewContainer(VIEWLET_ID, ViewContainerLocation.Sidebar);
+export const VIEW_CONTAINER: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry).registerViewContainer({ id: VIEWLET_ID }, ViewContainerLocation.Sidebar);
 
 export interface IExplorerService {
 	_serviceBrand: undefined;
@@ -55,7 +55,6 @@ export interface IExplorerService {
 	refresh(): void;
 	setToCopy(stats: ExplorerItem[], cut: boolean): void;
 	isCut(stat: ExplorerItem): boolean;
-	shouldIgnoreCase(resource: URI): boolean;
 
 	/**
 	 * Selects and reveal the file element provided by the given resource if its found in the explorer.
