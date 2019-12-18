@@ -758,5 +758,3 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 		}
 	}
 }
-
-

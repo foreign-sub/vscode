@@ -39,4 +39,3 @@ export function getDocumentContext(documentUri: string, workspaceFolders: Worksp
 		},
 	};
 }
-
