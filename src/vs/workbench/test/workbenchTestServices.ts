@@ -374,7 +374,7 @@ export class TestHistoryService implements IHistoryService {
 	remove(_input: IEditorInput | IResourceInput): void { }
 	clear(): void { }
 	clearRecentlyOpened(): void { }
-	getHistory(): Array<IEditorInput | IResourceInput> { return []; }
+	getHistory(): ReadonlyArray<IEditorInput | IResourceInput> { return []; }
 	openNextRecentlyUsedEditor(group?: GroupIdentifier): void { }
 	openPreviouslyUsedEditor(group?: GroupIdentifier): void { }
 	getMostRecentlyUsedOpenEditors(): Array<IEditorIdentifier> { return []; }
@@ -902,16 +902,18 @@ export class TestEditorService implements EditorServiceImpl {
 	onDidVisibleEditorsChange: Event<void> = Event.None;
 	onDidCloseEditor: Event<IEditorCloseEvent> = Event.None;
 	onDidOpenEditorFail: Event<IEditorIdentifier> = Event.None;
+	onDidMostRecentlyActiveEditorsChange: Event<void> = Event.None;
 
 	activeControl!: IVisibleEditor;
 	activeTextEditorWidget: any;
 	activeEditor!: IEditorInput;
 	editors: ReadonlyArray<IEditorInput> = [];
+	mostRecentlyActiveEditors: ReadonlyArray<IEditorIdentifier> = [];
 	visibleControls: ReadonlyArray<IVisibleEditor> = [];
 	visibleTextEditorWidgets = [];
 	visibleEditors: ReadonlyArray<IEditorInput> = [];
 
-	constructor(private editorGroupService: IEditorGroupsService) { }
+	constructor(private editorGroupService?: IEditorGroupsService) { }
 
 	overrideOpenEditor(_handler: IOpenEditorOverrideHandler): IDisposable {
 		return toDisposable(() => undefined);
@@ -922,6 +924,10 @@ export class TestEditorService implements EditorServiceImpl {
 	}
 
 	doResolveEditorOpenRequest(editor: IEditorInput | IResourceEditor): [IEditorGroup, EditorInput, EditorOptions | undefined] | undefined {
+		if (!this.editorGroupService) {
+			return undefined;
+		}
+
 		return [this.editorGroupService.activeGroup, editor as EditorInput, undefined];
 	}
 
