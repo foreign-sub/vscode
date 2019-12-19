@@ -179,5 +179,3 @@ suite('HistoryService', function () {
 		part.dispose();
 	});
 });
-
-
