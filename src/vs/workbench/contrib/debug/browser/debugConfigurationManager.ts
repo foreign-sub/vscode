@@ -21,7 +21,7 @@ import { IFileService } from 'vs/platform/files/common/files';
 import { IWorkspaceContextService, IWorkspaceFolder, WorkbenchState, IWorkspaceFoldersChangeEvent } from 'vs/platform/workspace/common/workspace';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { ICommandService } from 'vs/platform/commands/common/commands';
-import { IDebugConfigurationProvider, ICompound, IDebugConfiguration, IConfig, IGlobalConfig, IConfigurationManager, ILaunch, IDebugAdapterDescriptorFactory, IDebugAdapter, IDebugSession, IAdapterDescriptor, CONTEXT_DEBUG_CONFIGURATION_TYPE, IDebugAdapterFactory } from 'vs/workbench/contrib/debug/common/debug';
+import { IDebugConfigurationProvider, ICompound, IDebugConfiguration, IConfig, IGlobalConfig, IConfigurationManager, ILaunch, IDebugAdapterDescriptorFactory, IDebugAdapter, IDebugSession, IAdapterDescriptor, CONTEXT_DEBUG_CONFIGURATION_TYPE, IDebugAdapterFactory, IConfigPresentation } from 'vs/workbench/contrib/debug/common/debug';
 import { Debugger } from 'vs/workbench/contrib/debug/common/debugger';
 import { IEditorService, ACTIVE_GROUP, SIDE_GROUP } from 'vs/workbench/services/editor/common/editorService';
 import { isCodeEditor } from 'vs/editor/browser/editorBrowser';
@@ -207,11 +207,64 @@ export class ConfigurationManager implements IConfigurationManager {
 		return result;
 	}
 
+	async resolveDebugConfigurationWithSubstitutedVariables(folderUri: uri | undefined, type: string | undefined, config: IConfig, token: CancellationToken): Promise<IConfig | null | undefined> {
+		// pipe the config through the promises sequentially. Append at the end the '*' types
+		const providers = this.configProviders.filter(p => p.type === type && p.resolveDebugConfigurationWithSubstitutedVariables)
+			.concat(this.configProviders.filter(p => p.type === '*' && p.resolveDebugConfigurationWithSubstitutedVariables));
+
+		let result: IConfig | null | undefined = config;
+		await sequence(providers.map(provider => async () => {
+			// If any provider returned undefined or null make sure to respect that and do not pass the result to more resolver
+			if (result) {
+				result = await provider.resolveDebugConfigurationWithSubstitutedVariables!(folderUri, result, token);
+			}
+		}));
+
+		return result;
+	}
+
 	async provideDebugConfigurations(folderUri: uri | undefined, type: string, token: CancellationToken): Promise<any[]> {
 		await this.activateDebuggers('onDebugInitialConfigurations');
 		const results = await Promise.all(this.configProviders.filter(p => p.type === type && p.provideDebugConfigurations).map(p => p.provideDebugConfigurations!(folderUri, token)));
 
 		return results.reduce((first, second) => first.concat(second), []);
+	}
+
+	getAllConfigurations(): { launch: ILaunch; name: string; presentation?: IConfigPresentation }[] {
+		const all: { launch: ILaunch, name: string, presentation?: IConfigPresentation }[] = [];
+		for (let l of this.launches) {
+			for (let name of l.getConfigurationNames()) {
+				const config = l.getConfiguration(name) || l.getCompound(name);
+				if (config && !config.presentation?.hidden) {
+					all.push({ launch: l, name, presentation: config.presentation });
+				}
+			}
+		}
+
+		return all.sort((first, second) => {
+			if (!first.presentation) {
+				return 1;
+			}
+			if (!second.presentation) {
+				return -1;
+			}
+			if (!first.presentation.group) {
+				return 1;
+			}
+			if (!second.presentation.group) {
+				return -1;
+			}
+			if (first.presentation.group !== second.presentation.group) {
+				return first.presentation.group.localeCompare(second.presentation.group);
+			}
+			if (typeof first.presentation.order !== 'number') {
+				return 1;
+			}
+			if (typeof second.presentation.order !== 'number') {
+				return -1;
+			}
+			return first.presentation.order - second.presentation.order;
+		});
 	}
 
 	private registerListeners(): void {
