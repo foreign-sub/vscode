@@ -68,8 +68,7 @@
 				"target": "**/vs/base/common/**",
 				"restrictions": [
 					"vs/nls",
-					"**/vs/base/common/**",
-					"**/vs/base/parts/*/common/**"
+					"**/vs/base/common/**"
 				]
 			},
 			{
@@ -79,8 +78,7 @@
 					"sinon",
 					"vs/nls",
 					"**/vs/base/common/**",
-					"**/vs/base/test/common/**",
-					"**/vs/base/parts/*/common/**"
+					"**/vs/base/test/common/**"
 				]
 			},
 			{
@@ -88,8 +86,7 @@
 				"restrictions": [
 					"vs/nls",
 					"vs/css!./**/*",
-					"**/vs/base/{common,browser}/**",
-					"**/vs/base/parts/*/{common,browser}/**"
+					"**/vs/base/{common,browser}/**"
 				]
 			},
 			{
@@ -97,7 +94,6 @@
 				"restrictions": [
 					"vs/nls",
 					"**/vs/base/{common,node}/**",
-					"**/vs/base/parts/*/{common,node}/**",
 					"!path" // node modules (except path where we have our own impl)
 				]
 			},
@@ -109,7 +105,6 @@
 					"sinon",
 					"vs/nls",
 					"**/vs/base/{common,browser}/**",
-					"**/vs/base/parts/*/{common,browser}/**",
 					"**/vs/base/test/{common,browser}/**"
 				]
 			},
@@ -401,7 +396,6 @@
 					"**/vs/editor/common/**",
 					"**/vs/editor/contrib/*/common/**",
 					"**/vs/workbench/api/common/**",
-					"**/vs/base/parts/*/common/**",
 					"**/vs/workbench/common/**",
 					"**/vs/workbench/services/*/common/**",
 					"**/vs/workbench/contrib/*/common/**"
