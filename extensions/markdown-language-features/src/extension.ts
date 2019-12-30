@@ -85,4 +85,3 @@ function registerMarkdownCommands(
 	commandManager.register(new commands.RenderDocument(engine));
 	return commandManager;
 }
-
