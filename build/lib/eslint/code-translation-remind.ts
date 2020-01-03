@@ -64,4 +64,3 @@ export = new class TranslationRemind implements eslint.Rule.RuleModule {
 		}
 	}
 };
-

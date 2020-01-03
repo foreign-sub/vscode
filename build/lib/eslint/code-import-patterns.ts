@@ -72,4 +72,3 @@ export = new class implements eslint.Rule.RuleModule {
 		}
 	}
 };
-

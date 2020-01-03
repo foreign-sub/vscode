@@ -176,4 +176,3 @@ window.addEventListener('scroll', throttle(() => {
 		}
 	}
 }, 50));
-

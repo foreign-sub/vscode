@@ -123,4 +123,3 @@ export = new class NoUnexternalizedStrings implements eslint.Rule.RuleModule {
 		};
 	}
 };
-
