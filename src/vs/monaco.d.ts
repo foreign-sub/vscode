@@ -6410,9 +6410,16 @@ declare namespace monaco.languages {
 		resolveCodeLens?(model: editor.ITextModel, codeLens: CodeLens, token: CancellationToken): ProviderResult<CodeLens>;
 	}
 
+	export enum InlineHintKind {
+		Other = 0,
+		Type = 1,
+		Parameter = 2
+	}
+
 	export interface InlineHint {
 		text: string;
 		range: IRange;
+		kind: InlineHintKind;
 		description?: string | IMarkdownString;
 		whitespaceBefore?: boolean;
 		whitespaceAfter?: boolean;
@@ -6505,6 +6512,10 @@ declare namespace monaco.languages {
 		 * Defaults to false
 		 */
 		includeLF?: boolean;
+		/**
+		 * Other keys that can be referred to by the tokenizer.
+		 */
+		[key: string]: any;
 	}
 
 	/**
