@@ -447,10 +447,10 @@
     "@types/node" "*"
     "@types/vinyl" "*"
 
-"@types/http-proxy-agent@^2.0.1":
-  version "2.0.1"
-  resolved "https://registry.yarnpkg.com/@types/http-proxy-agent/-/http-proxy-agent-2.0.1.tgz#2f95077f6bfe7adc39cc0f0042da85997ae77fc7"
-  integrity sha512-dgsgbsgI3t+ZkdzF9H19uBaLsurIZJJjJsVpj4mCLp8B6YghQ7jVwyqhaL0PcVtuC3nOi0ZBhAi2Dd9jCUwdFA==
+"@types/http-proxy-agent@^2.0.2":
+  version "2.0.2"
+  resolved "https://registry.yarnpkg.com/@types/http-proxy-agent/-/http-proxy-agent-2.0.2.tgz#942c1f35c7e1f0edd1b6ffae5d0f9051cfb32be1"
+  integrity sha512-2S6IuBRhqUnH1/AUx9k8KWtY3Esg4eqri946MnxTG5HwehF1S5mqLln8fcyMiuQkY72p2gH3W+rIPqp5li0LyQ==
   dependencies:
     "@types/node" "*"
 
@@ -484,30 +484,15 @@
   resolved "https://registry.yarnpkg.com/@types/mocha/-/mocha-8.2.0.tgz#3eb56d13a1de1d347ecb1957c6860c911704bc44"
   integrity sha512-/Sge3BymXo4lKc31C8OINJgXLaw+7vL1/L1pGiBNpGrBiT8FQiaFpSYV0uhTaG4y78vcMBTMFsWaHDvuD+xGzQ==
 
-"@types/node@*":
-  version "4.2.22"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-4.2.22.tgz#cf488a0f6b4a9c245d09927f4f757ca278b9c8ce"
-  integrity sha512-LXRap3bb4AjtLZ5NOFc4ssVZrQPTgdPcNm++0SEJuJZaOA+xHkojJNYqy33A5q/94BmG5tA6yaMeD4VdCv5aSA==
-
-"@types/node@14.x":
+"@types/node@*", "@types/node@14.x", "@types/node@>= 8", "@types/node@^14.6.2":
   version "14.14.43"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-14.14.43.tgz#26bcbb0595b305400e8ceaf9a127a7f905ae49c8"
   integrity sha512-3pwDJjp1PWacPTpH0LcfhgjvurQvrZFBrC6xxjaUEZ7ifUtT32jtjPxEMMblpqd2Mvx+k8haqQJLQxolyGN/cQ==
-
-"@types/node@>= 8":
-  version "14.14.22"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-14.14.22.tgz#0d29f382472c4ccf3bd96ff0ce47daf5b7b84b18"
-  integrity sha512-g+f/qj/cNcqKkc3tFqlXOYjrmZA+jNBiDzbP3kH+B+otKFqAdPgVTGP1IeKRdMml/aE69as5S4FqtxAbl+LaMw==
 
 "@types/node@^10.11.7":
   version "10.12.21"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.21.tgz#7e8a0c34cf29f4e17a36e9bd0ea72d45ba03908e"
   integrity sha512-CBgLNk4o3XMnqMc0rhb6lc77IwShMEglz05deDcn2lQxyXEZivfwgYJu7SMha9V5XcrP6qZuevTHV/QrN2vjKQ==
-
-"@types/node@^14.6.2":
-  version "14.14.37"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-14.14.37.tgz#a3dd8da4eb84a996c36e331df98d82abd76b516e"
-  integrity sha512-XYmBiy+ohOR4Lh5jE379fV2IU+6Jn4g5qASinhitfyO71b/sCo6MKsMLF5tc7Zf2CE8hViVQyYSobJNke8OvUw==
 
 "@types/q@^1.5.1":
   version "1.5.4"
