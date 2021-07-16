@@ -50,11 +50,11 @@ suite('Notebook Find', () => {
 	test('Update find matches basics', async function () {
 		await withTestNotebook(
 			[
-				['# header 1', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 1', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 2', 'markdown', CellKind.Markdown, [], {}],
+				['# header 1', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 1', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 2', 'markdown', CellKind.Markup, [], {}],
 			],
-			async (editor, accessor) => {
+			async (editor, viewModel, accessor) => {
 				accessor.stub(IConfigurationService, configurationService);
 				const state = new FindReplaceState();
 				const model = new FindModel(editor, state, accessor.get(IConfigurationService));
@@ -85,13 +85,13 @@ suite('Notebook Find', () => {
 	test('Update find matches basics 2', async function () {
 		await withTestNotebook(
 			[
-				['# header 1', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 1.1', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 1.2', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 1.3', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 2', 'markdown', CellKind.Markdown, [], {}],
+				['# header 1', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 1.1', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 1.2', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 1.3', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 2', 'markdown', CellKind.Markup, [], {}],
 			],
-			async (editor, accessor) => {
+			async (editor, viewModel, accessor) => {
 				setupEditorForTest(editor);
 				accessor.stub(IConfigurationService, configurationService);
 				const state = new FindReplaceState();
@@ -128,13 +128,13 @@ suite('Notebook Find', () => {
 	test('Update find matches basics 3', async function () {
 		await withTestNotebook(
 			[
-				['# header 1', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 1.1', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 1.2', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 1.3', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 2', 'markdown', CellKind.Markdown, [], {}],
+				['# header 1', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 1.1', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 1.2', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 1.3', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 2', 'markdown', CellKind.Markup, [], {}],
 			],
-			async (editor, accessor) => {
+			async (editor, viewModel, accessor) => {
 				setupEditorForTest(editor);
 				accessor.stub(IConfigurationService, configurationService);
 				const state = new FindReplaceState();
@@ -164,13 +164,13 @@ suite('Notebook Find', () => {
 	test('Update find matches, #112748', async function () {
 		await withTestNotebook(
 			[
-				['# header 1', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 1.1', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 1.2', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 1.3', 'markdown', CellKind.Markdown, [], {}],
-				['paragraph 2', 'markdown', CellKind.Markdown, [], {}],
+				['# header 1', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 1.1', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 1.2', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 1.3', 'markdown', CellKind.Markup, [], {}],
+				['paragraph 2', 'markdown', CellKind.Markup, [], {}],
 			],
-			async (editor, accessor) => {
+			async (editor, viewModel, accessor) => {
 				setupEditorForTest(editor);
 				accessor.stub(IConfigurationService, configurationService);
 				const state = new FindReplaceState();

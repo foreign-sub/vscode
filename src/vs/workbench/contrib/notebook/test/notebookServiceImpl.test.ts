@@ -13,9 +13,9 @@ import { IFileService } from 'vs/platform/files/common/files';
 import { IStorageService } from 'vs/platform/storage/common/storage';
 import { NotebookProviderInfoStore } from 'vs/workbench/contrib/notebook/browser/notebookServiceImpl';
 import { NotebookProviderInfo } from 'vs/workbench/contrib/notebook/common/notebookProvider';
-import { EditorOverrideService } from 'vs/workbench/services/editor/browser/editorOverrideService';
-import { ContributedEditorPriority } from 'vs/workbench/services/editor/common/editorOverrideService';
-import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
+import { EditorResolverService } from 'vs/workbench/services/editor/browser/editorResolverService';
+import { RegisteredEditorPriority } from 'vs/workbench/services/editor/common/editorResolverService';
+import { IExtensionService, nullExtensionDescription } from 'vs/workbench/services/extensions/common/extensions';
 import { workbenchInstantiationService } from 'vs/workbench/test/browser/workbenchTestServices';
 
 suite('NotebookProviderInfoStore', function () {
@@ -31,7 +31,7 @@ suite('NotebookProviderInfoStore', function () {
 			new class extends mock<IExtensionService>() {
 				override onDidRegisterExtensions = Event.None;
 			},
-			instantiationService.createInstance(EditorOverrideService),
+			instantiationService.createInstance(EditorResolverService),
 			new TestConfigurationService(),
 			new class extends mock<IAccessibilityService>() { },
 			instantiationService,
@@ -41,24 +41,22 @@ suite('NotebookProviderInfoStore', function () {
 		);
 
 		const fooInfo = new NotebookProviderInfo({
+			extension: nullExtensionDescription.identifier,
 			id: 'foo',
 			displayName: 'foo',
 			selectors: [{ filenamePattern: '*.foo' }],
-			priority: ContributedEditorPriority.default,
-			dynamicContribution: false,
+			priority: RegisteredEditorPriority.default,
 			exclusive: false,
 			providerDisplayName: 'foo',
-			providerExtensionLocation: null!
 		});
 		const barInfo = new NotebookProviderInfo({
+			extension: nullExtensionDescription.identifier,
 			id: 'bar',
 			displayName: 'bar',
 			selectors: [{ filenamePattern: '*.bar' }],
-			priority: ContributedEditorPriority.default,
-			dynamicContribution: false,
+			priority: RegisteredEditorPriority.default,
 			exclusive: false,
 			providerDisplayName: 'bar',
-			providerExtensionLocation: null!
 		});
 
 		store.add(fooInfo);

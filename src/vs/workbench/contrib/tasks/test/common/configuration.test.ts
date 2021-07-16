@@ -88,7 +88,7 @@ class PresentationBuilder {
 	public result: Tasks.PresentationOptions;
 
 	constructor(public parent: CommandConfigurationBuilder) {
-		this.result = { echo: false, reveal: Tasks.RevealKind.Always, revealProblems: Tasks.RevealProblemKind.Never, focus: false, panel: Tasks.PanelKind.Shared, showReuseMessage: true, clear: false };
+		this.result = { echo: false, reveal: Tasks.RevealKind.Always, revealProblems: Tasks.RevealProblemKind.Never, focus: false, panel: Tasks.PanelKind.Shared, showReuseMessage: true, clear: false, close: false };
 	}
 
 	public echo(value: boolean): PresentationBuilder {
@@ -113,6 +113,11 @@ class PresentationBuilder {
 
 	public showReuseMessage(value: boolean): PresentationBuilder {
 		this.result.showReuseMessage = value;
+		return this;
+	}
+
+	public close(value: boolean): PresentationBuilder {
+		this.result.close = value;
 		return this;
 	}
 
@@ -449,7 +454,7 @@ function assertConfiguration(result: ParseResult, expected: Tasks.Task[]): void 
 		actualTasks[task.configurationProperties.name!] = task;
 		actualId2Name[task._id] = task.configurationProperties.name!;
 		if (task.configurationProperties.group) {
-			actualTaskGroups.add(task.configurationProperties.group, task);
+			actualTaskGroups.add(task.configurationProperties.group._id, task);
 		}
 	});
 	let expectedTasks: { [key: string]: Tasks.Task; } = Object.create(null);
@@ -458,7 +463,7 @@ function assertConfiguration(result: ParseResult, expected: Tasks.Task[]): void 
 		assert.ok(!expectedTasks[task.configurationProperties.name!]);
 		expectedTasks[task.configurationProperties.name!] = task;
 		if (task.configurationProperties.group) {
-			expectedTaskGroup.add(task.configurationProperties.group, task);
+			expectedTaskGroup.add(task.configurationProperties.group._id, task);
 		}
 	});
 	let actualKeys = Object.keys(actualTasks);

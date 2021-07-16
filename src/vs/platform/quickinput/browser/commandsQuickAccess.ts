@@ -55,7 +55,7 @@ export abstract class AbstractCommandsQuickAccessProvider extends PickerQuickAcc
 		this.options = options;
 	}
 
-	protected async getPicks(filter: string, disposables: DisposableStore, token: CancellationToken): Promise<Array<ICommandQuickPick | IQuickPickSeparator>> {
+	protected async _getPicks(filter: string, disposables: DisposableStore, token: CancellationToken): Promise<Array<ICommandQuickPick | IQuickPickSeparator>> {
 
 		// Ask subclass for all command picks
 		const allCommandPicks = await this.getCommandPicks(disposables, token);
@@ -163,7 +163,7 @@ export abstract class AbstractCommandsQuickAccessProvider extends PickerQuickAcc
 						await this.commandService.executeCommand(commandPick.commandId);
 					} catch (error) {
 						if (!isPromiseCanceledError(error)) {
-							this.dialogService.show(Severity.Error, localize('canNotRun', "Command '{0}' resulted in an error ({1})", commandPick.label, toErrorMessage(error)), [localize('ok', 'OK')]);
+							this.dialogService.show(Severity.Error, localize('canNotRun', "Command '{0}' resulted in an error ({1})", commandPick.label, toErrorMessage(error)));
 						}
 					}
 				}
