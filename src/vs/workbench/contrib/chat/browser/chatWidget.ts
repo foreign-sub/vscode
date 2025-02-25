@@ -23,6 +23,7 @@ import { ICodeEditor } from '../../../../editor/browser/editorBrowser.js';
 import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { localize } from '../../../../nls.js';
 import { MenuId } from '../../../../platform/actions/common/actions.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { ITextResourceEditorInput } from '../../../../platform/editor/common/editor.js';
@@ -223,6 +224,7 @@ export class ChatWidget extends Disposable implements IChatWidget {
 		private readonly viewOptions: IChatWidgetViewOptions,
 		private readonly styles: IChatWidgetStyles,
 		@ICodeEditorService codeEditorService: ICodeEditorService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IChatService private readonly chatService: IChatService,
@@ -300,8 +302,13 @@ export class ChatWidget extends Disposable implements IChatWidget {
 			return lastResponse?.result?.errorDetails && !lastResponse?.result?.errorDetails.responseIsIncomplete;
 		}));
 
-		this._codeBlockModelCollection = this._register(instantiationService.createInstance(CodeBlockModelCollection));
+		this._codeBlockModelCollection = this._register(instantiationService.createInstance(CodeBlockModelCollection, undefined));
 
+		this._register(this.configurationService.onDidChangeConfiguration((e) => {
+			if (e.affectsConfiguration('chat.renderRelatedFiles')) {
+				this.renderChatEditingSessionState();
+			}
+		}));
 
 		this._register(autorunWithStore((r, store) => {
 
@@ -830,6 +837,7 @@ export class ChatWidget extends Disposable implements IChatWidget {
 				renderStyle: options?.renderStyle === 'minimal' ? 'compact' : options?.renderStyle,
 				menus: { executeToolbar: MenuId.ChatExecute, ...this.viewOptions.menus },
 				editorOverflowWidgetsDomNode: this.viewOptions.editorOverflowWidgetsDomNode,
+				enableImplicitContext: this.viewOptions.enableImplicitContext,
 				renderWorkingSet: this.viewOptions.enableWorkingSet === 'explicit'
 			},
 			this.styles,
@@ -1116,20 +1124,6 @@ export class ChatWidget extends Disposable implements IChatWidget {
 					}
 				}
 
-				// Then take any attachments that are not files
-				for (const attachment of this.attachmentModel.attachments) {
-					if (!URI.isUri(attachment.value)) {
-						editingSessionAttachedContext.push(attachment);
-					}
-				}
-
-				// add prompt instruction references to the attached context, if enabled
-				const promptInstructionUris = new ResourceSet(promptInstructions.chatAttachments.map((v) => v.value) as URI[]);
-				if (instructionsEnabled) {
-					editingSessionAttachedContext
-						.push(...promptInstructions.chatAttachments);
-				}
-
 				for (const file of uniqueWorkingSetEntries) {
 					// Make sure that any files that we sent are part of the working set
 					// but do not permanently add file variables from previous requests to the working set
@@ -1143,7 +1137,7 @@ export class ChatWidget extends Disposable implements IChatWidget {
 					for (const variable of request.variableData.variables) {
 						if (URI.isUri(variable.value) && variable.isFile) {
 							const uri = variable.value;
-							if (!uniqueWorkingSetEntries.has(uri) && !promptInstructionUris.has(uri)) {
+							if (!uniqueWorkingSetEntries.has(uri)) {
 								editingSessionAttachedContext.push(variable);
 								uniqueWorkingSetEntries.add(variable.value);
 							}

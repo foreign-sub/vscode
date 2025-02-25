@@ -22,7 +22,7 @@ import { Location, SymbolKind, TextEdit } from '../../../../editor/common/langua
 import { localize } from '../../../../nls.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { MarkerSeverity } from '../../../../platform/markers/common/markers.js';
-import { ICellEditOperation } from '../../notebook/common/notebookCommon.js';
+import { CellUri, ICellEditOperation } from '../../notebook/common/notebookCommon.js';
 import { ChatAgentLocation, IChatAgentCommand, IChatAgentData, IChatAgentResult, IChatAgentService, IChatWelcomeMessageContent, reviveSerializedAgent } from './chatAgents.js';
 import { ChatRequestTextPart, IParsedChatRequest, reviveParsedChatRequest } from './chatParserTypes.js';
 import { ChatAgentVoteDirection, ChatAgentVoteDownReason, IChatAgentMarkdownContentWithVulnerability, IChatCodeCitation, IChatCommandButton, IChatConfirmation, IChatContentInlineReference, IChatContentReference, IChatFollowup, IChatLocationData, IChatMarkdownContent, IChatNotebookEdit, IChatProgress, IChatProgressMessage, IChatResponseCodeblockUriPart, IChatResponseProgressFileTreeData, IChatTask, IChatTextEdit, IChatToolInvocation, IChatToolInvocationSerialized, IChatTreeData, IChatUndoStop, IChatUsedContext, IChatWarningMessage, isIUsedContext } from './chatService.js';
@@ -88,6 +88,11 @@ export interface ILinkVariableEntry extends Omit<IBaseChatRequestVariableEntry, 
 	readonly value: URI;
 }
 
+export interface IImageVariableEntry extends Omit<IBaseChatRequestVariableEntry, 'kind'> {
+	readonly kind: 'image';
+	readonly isPasted?: boolean;
+}
+
 export interface IDiagnosticVariableEntryFilterData {
 	readonly filterUri?: URI;
 	readonly filterSeverity?: MarkerSeverity;
@@ -120,7 +125,7 @@ export interface IDiagnosticVariableEntry extends Omit<IBaseChatRequestVariableE
 	readonly kind: 'diagnostic';
 }
 
-export type IChatRequestVariableEntry = IChatRequestImplicitVariableEntry | IChatRequestPasteVariableEntry | ISymbolVariableEntry | ICommandResultVariableEntry | ILinkVariableEntry | IBaseChatRequestVariableEntry | IDiagnosticVariableEntry;
+export type IChatRequestVariableEntry = IChatRequestImplicitVariableEntry | IChatRequestPasteVariableEntry | ISymbolVariableEntry | ICommandResultVariableEntry | ILinkVariableEntry | IBaseChatRequestVariableEntry | IDiagnosticVariableEntry | IImageVariableEntry;
 
 export function isImplicitVariableEntry(obj: IChatRequestVariableEntry): obj is IChatRequestImplicitVariableEntry {
 	return obj.kind === 'implicit';
@@ -132,6 +137,10 @@ export function isPasteVariableEntry(obj: IChatRequestVariableEntry): obj is ICh
 
 export function isLinkVariableEntry(obj: IChatRequestVariableEntry): obj is ILinkVariableEntry {
 	return obj.kind === 'link';
+}
+
+export function isImageVariableEntry(obj: IChatRequestVariableEntry): obj is IImageVariableEntry {
+	return obj.kind === 'image';
 }
 
 export function isDiagnosticsVariableEntry(obj: IChatRequestVariableEntry): obj is IDiagnosticVariableEntry {
@@ -180,9 +189,19 @@ export interface IChatTextEditGroup {
 	done: boolean | undefined;
 }
 
+export function isCellTextEditOperation(value: unknown): value is ICellTextEditOperation {
+	const candidate = value as ICellTextEditOperation;
+	return !!candidate && !!candidate.edit && !!candidate.uri && URI.isUri(candidate.uri);
+}
+
+export interface ICellTextEditOperation {
+	edit: TextEdit;
+	uri: URI;
+}
+
 export interface IChatNotebookEditGroup {
 	uri: URI;
-	edits: ICellEditOperation[][];
+	edits: (ICellTextEditOperation | ICellEditOperation)[];
 	state?: IChatTextEditGroupState;
 	kind: 'notebookEditGroup';
 	done: boolean | undefined;
@@ -521,13 +540,19 @@ export class Response extends AbstractResponse implements IDisposable {
 			}
 			this._updateRepr(quiet);
 		} else if (progress.kind === 'textEdit' || progress.kind === 'notebookEdit') {
+			// If the progress.uri is a cell Uri, its possible its part of the inline chat.
+			// Old approach of notebook inline chat would not start and end with notebook Uri, so we need to check for old approach.
+			const useOldApproachForInlineNotebook = progress.uri.scheme === Schemas.vscodeNotebookCell && !this._responseParts.find(part => part.kind === 'notebookEditGroup');
 			// merge edits for the same file no matter when they come in
-			const groupKind = progress.kind === 'textEdit' ? 'textEditGroup' : 'notebookEditGroup';
+			const notebookUri = useOldApproachForInlineNotebook ? undefined : CellUri.parse(progress.uri)?.notebook;
+			const uri = notebookUri ?? progress.uri;
 			let found = false;
+			const groupKind = progress.kind === 'textEdit' && !notebookUri ? 'textEditGroup' : 'notebookEditGroup';
+			const edits: any = groupKind === 'textEditGroup' ? progress.edits : progress.edits.map(edit => TextEdit.isTextEdit(edit) ? { uri: progress.uri, edit } : edit);
 			for (let i = 0; !found && i < this._responseParts.length; i++) {
 				const candidate = this._responseParts[i];
-				if (candidate.kind === groupKind && !candidate.done && isEqual(candidate.uri, progress.uri)) {
-					candidate.edits.push(progress.edits as any);
+				if (candidate.kind === groupKind && !candidate.done && isEqual(candidate.uri, uri)) {
+					candidate.edits.push(edits);
 					candidate.done = progress.done;
 					found = true;
 				}
@@ -535,8 +560,8 @@ export class Response extends AbstractResponse implements IDisposable {
 			if (!found) {
 				this._responseParts.push({
 					kind: groupKind,
-					uri: progress.uri,
-					edits: [progress.edits as any],
+					uri,
+					edits: groupKind === 'textEditGroup' ? [edits] : edits,
 					done: progress.done
 				});
 			}

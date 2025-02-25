@@ -240,6 +240,7 @@ export class ChatEditingSession extends Disposable implements IChatEditingSessio
 	}
 
 	private _getEntry(uri: URI): AbstractChatEditingModifiedFileEntry | undefined {
+		uri = CellUri.parse(uri)?.notebook ?? uri;
 		return this._entriesObs.get().find(e => isEqual(e.modifiedURI, uri));
 	}
 
@@ -248,6 +249,7 @@ export class ChatEditingSession extends Disposable implements IChatEditingSessio
 	}
 
 	public readEntry(uri: URI, reader: IReader | undefined): IModifiedFileEntry | undefined {
+		uri = CellUri.parse(uri)?.notebook ?? uri;
 		return this._entriesObs.read(reader).find(e => isEqual(e.modifiedURI, uri));
 	}
 
@@ -300,8 +302,13 @@ export class ChatEditingSession extends Disposable implements IChatEditingSessio
 		return this._linearHistory.get().find(s => s.requestId === requestId);
 	}
 
-	private _findEditStop(requestId: string, undoStop: string | undefined): IChatEditingSessionStop | undefined {
-		return this._findSnapshot(requestId)?.stops.find(s => s.stopId === undoStop);
+	private _findEditStop(requestId: string, undoStop: string | undefined) {
+		const snapshot = this._findSnapshot(requestId);
+		if (!snapshot) {
+			return undefined;
+		}
+		const idx = snapshot.stops.findIndex(s => s.stopId === undoStop);
+		return idx === -1 ? undefined : { stop: snapshot.stops[idx], snapshot, historyIndex: snapshot.startIndex + idx };
 	}
 
 	private _ensurePendingSnapshot() {
@@ -465,7 +472,7 @@ export class ChatEditingSession extends Disposable implements IChatEditingSessio
 	public async getSnapshotModel(requestId: string, undoStop: string | undefined, snapshotUri: URI): Promise<ITextModel | null> {
 		const entries = undoStop === POST_EDIT_STOP_ID
 			? this._findSnapshot(requestId)?.postEdit
-			: this._findEditStop(requestId, undoStop)?.entries;
+			: this._findEditStop(requestId, undoStop)?.stop.entries;
 		if (!entries) {
 			return null;
 		}
@@ -489,10 +496,14 @@ export class ChatEditingSession extends Disposable implements IChatEditingSessio
 	private _pendingSnapshot: IChatEditingSessionStop | undefined;
 	public async restoreSnapshot(requestId: string | undefined, stopId: string | undefined): Promise<void> {
 		if (requestId !== undefined) {
-			const snapshot = this._findEditStop(requestId, stopId);
-			if (snapshot) {
+			const stopRef = this._findEditStop(requestId, stopId);
+			if (stopRef) {
 				this._ensurePendingSnapshot();
-				await this._restoreSnapshot(snapshot, undefined);
+				await asyncTransaction(async tx => {
+					this._linearHistoryIndex.set(stopRef.historyIndex, tx);
+					await this._restoreSnapshot(stopRef.stop, tx);
+				});
+				this._updateRequestHiddenState();
 			}
 		} else {
 			const pendingSnapshot = this._pendingSnapshot;
@@ -700,16 +711,23 @@ export class ChatEditingSession extends Disposable implements IChatEditingSessio
 
 			startPromise.complete();
 			return completePromise.p;
-		});
+		}).then(() => this._onStreamingEditDequeued());
 
 
 		let didComplete = false;
 
 		return {
-			pushText: edits => {
+			pushText: (edits) => {
 				sequencer.queue(async () => {
 					if (!this.isDisposed) {
 						await this._acceptEdits(resource, edits, false, responseModel);
+					}
+				});
+			},
+			pushNotebookCellText: (cell, edits) => {
+				sequencer.queue(async () => {
+					if (!this.isDisposed) {
+						await this._acceptEdits(cell, edits, false, responseModel);
 					}
 				});
 			},
@@ -729,12 +747,25 @@ export class ChatEditingSession extends Disposable implements IChatEditingSessio
 				sequencer.queue(async () => {
 					if (!this.isDisposed) {
 						await this._acceptEdits(resource, [], true, responseModel);
-						await this._resolve(responseModel.requestId, inUndoStop, resource);
+						this._resolve(responseModel.requestId, inUndoStop, resource);
 						completePromise.complete();
 					}
 				});
 			},
 		};
+	}
+
+	private _onStreamingEditDequeued() {
+		const state = this._state.get();
+		if (state === ChatEditingSessionState.Disposed) {
+			return;
+		}
+
+		const isStreamingEdits = !Iterable.isEmpty(this._streamingEditLocks.keys());
+		const targetState = isStreamingEdits ? ChatEditingSessionState.StreamingEdits : ChatEditingSessionState.Idle;
+		if (state !== targetState) {
+			this._state.set(targetState, undefined);
+		}
 	}
 
 	private _trackUntitledWorkingSetEntry(resource: URI) {
@@ -945,20 +976,15 @@ export class ChatEditingSession extends Disposable implements IChatEditingSessio
 		};
 	}
 
-	private async _resolve(requestId: string, undoStop: string | undefined, resource: URI): Promise<void> {
-		await asyncTransaction(async (tx) => {
-			const hasOtherTasks = Iterable.some(this._streamingEditLocks.keys(), k => k !== resource.toString());
-			if (!hasOtherTasks) {
-				this._state.set(ChatEditingSessionState.Idle, tx);
-			}
-
+	private _resolve(requestId: string, undoStop: string | undefined, resource: URI): void {
+		transaction((tx) => {
 			const entry = this._getEntry(resource);
 			if (!entry) {
 				return;
 			}
 
 			this.ensureEditInUndoStopMatches(requestId, undoStop, entry, /* next= */ true, tx);
-			return entry.acceptStreamingEditsEnd(tx);
+			entry.acceptStreamingEditsEnd(tx);
 		});
 
 		this._onDidChange.fire(ChatEditingSessionChangeType.Other);
@@ -1025,7 +1051,8 @@ export class ChatEditingSession extends Disposable implements IChatEditingSessio
 		const chatKind = mustExist ? ChatEditKind.Created : ChatEditKind.Modified;
 		try {
 			const notebookUri = CellUri.parse(resource)?.notebook || resource;
-			if (this._notebookService.hasSupportedNotebooks(notebookUri)) {
+			// If a notebook isn't open, then use the old synchronization approach.
+			if (this._notebookService.hasSupportedNotebooks(notebookUri) && (this._notebookService.getNotebookTextModel(notebookUri) || ChatEditingModifiedNotebookEntry.canHandleSnapshot(initialContent))) {
 				return ChatEditingModifiedNotebookEntry.create(notebookUri, multiDiffEntryDelegate, telemetryInfo, chatKind, initialContent, this._instantiationService);
 			} else {
 				const ref = await this._textModelService.createModelReference(resource);
